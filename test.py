@@ -1,5 +1,9 @@
+#%%
+# Import libraries
+
 import numpy as np
 from dlroms import *
+from dlroms.dnns import *
 import numpy.random as rnd
 import matplotlib.pyplot as plt
 import torch
@@ -11,7 +15,9 @@ from dolfin import *
 plotOn = False
 generateData = False
 
+rnd.seed(42) 												# Random seed
 
+#%%
 # Domain and mesh definition
 
 print('Generating mesh and finite element space...')
@@ -36,17 +42,15 @@ def boundary(x, on_boundary):
 
 bc = DirichletBC(V, u_D, boundary) 							# Dirichlet boundary conditions
 
-
+#%%
 # Sampling of the training and test sets
+
+training_size = 1200
+test_size = 5000
 
 if generateData:
 
 	print('Sampling training and test sets...')
-
-	rnd.seed(42) 												# Random seed
-
-	training_size = 1200
-	test_size = 5000
 
 	mu_train = np.zeros((training_size, 4))						# Training set
 
@@ -61,7 +65,7 @@ if generateData:
 	mu1, mu2, mu3, mu4 = mu_train[:, 0], mu_train[:, 1], mu_train[:, 2], mu_train[:, 3]
 	mu1t, mu2t, mu3t, mu4t = mu_test[:, 0], mu_test[:, 1], mu_test[:, 2], mu_test[:, 3]
 
-
+#%%
 # Snapshots generation
 
 if generateData:
@@ -151,7 +155,7 @@ if generateData:
 	np.save('u_train.npy', u_train)
 	np.save('u_test.npy', u_test)
 
-
+#%%
 # Load snapshots
 
 if not generateData:
@@ -163,7 +167,7 @@ if not generateData:
 	u_train = np.load('u_train.npy')
 	u_test = np.load('u_test.npy')
 
-
+#%%
 # Traning architecture
 
 m = 16
@@ -181,21 +185,55 @@ k = 4
 
 # The input and output dimensions are written in the form height x width x channels (vectors reshaped in 3D tensors)
 
-torch.set_default_dtype(torch.float16)
+# class Reshape(Weightless):
+#    ...
+#  Note: as all DNN modules, it operates in batches, i.e.: it expects an input of shape (batch_size, d1,..., dk)
+#        and it outputs a corresponding tensor of shape (batch_size, p1,..., pj), where self.newdim = (p1,...,pj).
+#        That is, all input instances of dimension (d1,..., dk) are reshaped independently. 
+#        Note that, for this to work, one must ensure that d1*...*dk = p1*...*pj. 
+
+# torch.set_default_dtype(torch.float16)
 
 psi_prime = Dense(Nh, 4)
 
-print(psi_prime.dof())
+print("Trainable parameters:")
+
+print(" Encoder: ", psi_prime.dof())
 
 psi = Dense(4, 100 * m) + \
-	  dnns.Deconv2D(11, (4 * m, 2 * m), 2) + \
-	  dnns.Deconv2D(10, (2 * m, m), 2) + \
-      dnns.Deconv2D(11, (m, 1), 2)
+	  Reshape(4 * m, 5, 5) + \
+	  Deconv2D(11, (4 * m, 2 * m), 2) + \
+	  Deconv2D(10, (2 * m, m), 2) + \
+      Deconv2D(11, (m, 1), 2, activation=None) + \
+	  Reshape(-1)
 
-print(psi.dof())
+print(" Decoder: ", psi.dof())
 
 phi = Dense(4, 50 * k) + \
 	  Dense(50 * k, 50 * k) + \
 	  Dense(50 * k, 4)
 
-print(phi.dof())
+print(" Dense NN: ", phi.dof())
+
+#%%
+# First, train the autoencoder to learn the identity (nonlinear dimensionality reduction)
+
+print('Training autoencoder...')
+
+autoencoder = psi_prime + psi																# Autoencoder architecture
+autoencoder = DFNN(autoencoder)
+autoencoder.He()																			# He initialization
+
+epochs = 200																				# Number of epochs
+loss = mse(euclidean)																		# MSE loss (?)
+
+# def train(self, mu, u, ntrain, epochs, optim = torch.optim.LBFGS, lr = 1, loss = None, error = None, nvalid = 0,
+#           verbose = True, refresh = True, notation = 'e', title = None, batchsize = None, slope = 1.0)
+
+# Learning rate, minibatch?
+
+u_train = CPU.tensor(u_train)
+
+autoencoder.train(u_train, u_train, ntrain=training_size, epochs=epochs, loss=loss, batchsize=training_size, verbose=True)
+
+# %%
