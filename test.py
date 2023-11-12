@@ -1,4 +1,7 @@
 #%%
+# LINK TO GOOGLE COLAB: https://colab.research.google.com/drive/1rJ1aUwMHxhmq7spSFEmvsx84uGfmgwqq
+
+#%%
 # Import libraries
 
 import numpy as np
@@ -9,13 +12,18 @@ import matplotlib.pyplot as plt
 import torch
 from dolfin import *
 
-
+#%%
 # Flags
 
 plotOn = False
 generateData = False
 
-rnd.seed(42) 												# Random seed
+device = torch.device('cuda:0')
+
+# Random seeds
+
+rnd.seed(0)
+torch.manual_seed(0)
 
 #%%
 # Domain and mesh definition
@@ -215,8 +223,15 @@ phi = Dense(4, 50 * k) + \
 
 print(" Dense NN: ", phi.dof())
 
+# Move data to the GPU
+
+u_train = GPU.tensor(u_train)
+u_test = GPU.tensor(u_test)
+mu_train = GPU.tensor(mu_train)
+mu_test = GPU.tensor(mu_test)
+
 #%%
-# First, train the autoencoder to learn the identity (nonlinear dimensionality reduction)
+# Train the autoencoder to learn the identity (nonlinear dimensionality reduction)
 
 print('Training autoencoder...')
 
@@ -224,16 +239,122 @@ autoencoder = psi_prime + psi																# Autoencoder architecture
 autoencoder = DFNN(autoencoder)
 autoencoder.He()																			# He initialization
 
-epochs = 200																				# Number of epochs
-loss = mse(euclidean)																		# MSE loss (?)
-
 # def train(self, mu, u, ntrain, epochs, optim = torch.optim.LBFGS, lr = 1, loss = None, error = None, nvalid = 0,
 #           verbose = True, refresh = True, notation = 'e', title = None, batchsize = None, slope = 1.0)
 
 # Learning rate, minibatch?
 
-u_train = CPU.tensor(u_train)
+autoencoder.to(device)
 
-autoencoder.train(u_train, u_train, ntrain=training_size, epochs=epochs, loss=loss, batchsize=training_size, verbose=True)
+autoencoder.train(u_train, u_train, ntrain=training_size, epochs=200, loss=mre(euclidean), verbose=True)
 
-# %%
+#%%
+# Use the trained encoder to generate the reduced order version of the dataset
+
+print('Generating reduced order training dataset...')
+
+autoencoder.freeze()
+
+autoencoder.eval()
+
+with torch.no_grad():
+	u_train_ro = autoencoder(u_train)
+
+#%%
+# Use the reduced dataset to train the dense NN mapping the parameters to the reduced order solution
+
+print('Learning map from parameters to solutions...')
+
+phi = DFNN(phi)
+phi.He()																			# He initialization
+
+phi.to(device)
+
+phi.train(mu_train, u_train_ro, ntrain=training_size, epochs=200, loss=mse(euclidean), verbose=True)
+
+#%%
+# Use the decoder to restore the full order solution
+
+phi.eval()
+psi.eval()
+
+with torch.no_grad():
+	u_train_pred = psi(phi(mu_train))
+
+#%%
+# Compute the relative error
+
+error_train = torch.norm(u_train - u_train_pred, dim=1) / torch.norm(u_train, dim=1)
+print('Relative training error: {:.2f}%'.format(100 * torch.mean(error_train)))
+
+#%%
+# Apply the model to the test set
+
+with torch.no_grad():
+	u_test_pred = psi(phi(mu_test))
+
+error_test = torch.norm(u_test - u_test_pred, dim=1) / torch.norm(u_test, dim=1)
+print('Relative test error: {:.2f}%'.format(100 * torch.mean(error_test)))
+
+#%%
+# Plot some results
+
+index = 1000
+
+plt.figure(figsize=(4, 3))
+fe.plot(u_test[index, :], V, colorbar=True)
+plt.title('u_test (instance #' + str(index) + ')')
+
+plt.figure(figsize=(4, 3))
+fe.plot(u_test_pred[index, :], V, colorbar=True)
+plt.title('u_test_pred (instance #' + str(index) + ')')
+
+plt.show()
+
+#%%
+# Save encoder, decoder, and dense NN
+
+print("Encoder state_dict:")
+for param_tensor in psi_prime.state_dict():
+    print(param_tensor, "\t", psi_prime.state_dict()[param_tensor].size())
+
+print("Decoder state_dict:")
+for param_tensor in psi.state_dict():
+    print(param_tensor, "\t", psi.state_dict()[param_tensor].size())
+
+print("Dense NN state_dict:")
+for param_tensor in phi.state_dict():
+    print(param_tensor, "\t", phi.state_dict()[param_tensor].size())
+
+torch.save(psi_prime.state_dict(), './psi_prime')
+torch.save(psi.state_dict(), './psi')
+torch.save(phi.state_dict(), './phi')
+
+# Load encoder, decoder, and dense NN
+
+psi_prime_rel = Dense(Nh, 4)
+
+psi_rel = Dense(4, 100 * m) + \
+	      Reshape(4 * m, 5, 5) + \
+	      Deconv2D(11, (4 * m, 2 * m), 2) + \
+	      Deconv2D(10, (2 * m, m), 2) + \
+          Deconv2D(11, (m, 1), 2, activation=None) + \
+	      Reshape(-1)
+
+#phi_rel = Dense(4, 50 * k) + \
+#	       Dense(50 * k, 50 * k) + \
+#	       Dense(50 * k, 4)
+
+psi_prime_rel.load_state_dict(torch.load('./psi_prime'))
+psi_rel.load_state_dict(torch.load('./psi'))
+#phi_rel.load_state_dict(torch.load('./phi'))
+
+psi_prime_rel.to(device)
+psi_rel.to(device)
+#phi_rel.to(device)
+
+psi_prime_rel.eval()
+psi_rel.eval()
+#phi_rel.eval()
+
+#%%
