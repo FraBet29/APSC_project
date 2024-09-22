@@ -244,7 +244,7 @@ class SVGD(object):
         n_samples (int): Number of samples for uncertain parameters
     """
 
-    def __init__(self, bayes_nn, n_samples=20, lr=0.01, lr_noise=0.01):
+    def __init__(self, bayes_nn, n_samples=20, optim=torch.optim.LBFGS, lr=0.01, lr_noise=0.01):
         
         self.bayes_nn = bayes_nn
         self.n_samples = n_samples
@@ -253,14 +253,14 @@ class SVGD(object):
         schedulers = []
 
         for i in range(self.n_samples):
-            parameters = [{'params': [self.bayes_nn[i].log_beta], 'lr': lr_noise},
+            parameters = [{'params': [self.bayes_nn[i].log_beta], 'lr': lr_noise}, # TODO: lr_noise?
                     {'params': self.bayes_nn[i].parameters()}]
-            optimizer = torch.optim.Adam(parameters, lr=lr) # TODO: optimizer choice?
+            optimizer = optim(parameters, lr=lr) # NOTE: use the same default optimizer as DL-ROMs (LBFGS)
             optimizers.append(optimizer)
-            schedulers.append(ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=10, verbose=True)) # TODO: scheduler choice?
+            # schedulers.append(ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=10)) # TODO: scheduler choice?
         
         self.optimizers = optimizers
-        self.schedulers = schedulers
+        # self.schedulers = schedulers
         del optimizers, schedulers
 
     def squared_dist(self, X):
@@ -370,8 +370,8 @@ class SVGD(object):
                 mse += F.mse_loss(Upred / self.n_samples, Utrain).item()
                 rmse_train = np.sqrt(mse / self.n_samples)
 
-                for i in range(self.n_samples):
-                    self.schedulers[i].step(rmse_train)
+                # for i in range(self.n_samples):
+                #     self.schedulers[i].step(rmse_train)
 
                 # compute test (validation?) error
                 if ntest > 0:
