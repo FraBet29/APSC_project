@@ -122,6 +122,8 @@ if __name__ == '__main__':
 		plt.subplot(1, 3, 3)
 		plt.title("Predicted time to recovery")
 		fe.plot(u_pred[idx], Vh_H, cmap='jet')
+		plt.savefig(os.path.join(args.output_dir, f'brain_recovery_{idx}.png'))
 
 	# Save model
+
 	torch.save(model.state_dict(), os.path.join(args.checkpoint_dir, 'model_deterministic.pth'))

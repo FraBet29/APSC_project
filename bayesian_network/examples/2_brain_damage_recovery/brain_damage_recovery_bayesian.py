@@ -8,6 +8,7 @@ from dlroms import *
 import gmsh
 import sys
 sys.path.append(os.path.join("..", "..", "dlroms")) # TODO: better alternative?
+from bayesian import *
 
 
 if __name__ == '__main__':

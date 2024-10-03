@@ -69,7 +69,7 @@ if __name__ == '__main__':
 		u0_C = lambda seed: 0.5 * np.tanh(10 * (G_C.sample(seed) + 0.5)) + 0.5
 		print(f"Low-fidelity random field, elapsed time: {time.time() - start:.2f}s")
 
-	# Samples a pair (mu, u) = (initial condition, time-to-recovery map)
+	# Sample a pair (mu, u) = (initial condition, time-to-recovery map)
 
 	# Time iterator
 	def step(w):
