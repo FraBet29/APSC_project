@@ -4,9 +4,7 @@ import argparse
 import numpy as np
 from dlroms import *
 from dlroms.gp import GaussianRandomField
-from fenics import FiniteElement, MixedElement, FunctionSpace
-from fenics import Function, TrialFunctions, TestFunctions
-from fenics import solve, dot, grad, dx
+from dolfin import *
 import gmsh
 
 
@@ -25,6 +23,22 @@ class Injection(UserExpression):
 			values[0] = - self.r
 		else:
 			values[0] = 0
+
+	def value_shape(self):
+		return ()
+	
+
+# Input random field
+class Field(UserExpression):
+	def __init__(self, field, space, **kwargs):
+		self.field = field
+		self.space = space
+		super().__init__(**kwargs)
+
+	def eval(self, values, x):
+		K = Function(self.space)
+		K.vector()[:] = self.field
+		values[0] = K(x)
 
 	def value_shape(self):
 		return ()
@@ -49,28 +63,17 @@ if __name__ == '__main__':
 	# Domain and mesh definition
 
 	domain = fe.rectangle((0.0, 0.0), (1.0, 1.0))
-	mesh = fe.mesh(domain, stepsize=0.05)
+	# mesh = fe.mesh(domain, stepsize=0.05)
+	mesh = fe.mesh(domain, stepsize=0.02)
+	Vh = fe.space(mesh, 'CG', 1) # used for K, p and the components of u
 
-	# Random field generation
-
-	class Field(UserExpression):
-		def __init__(self, field, **kwargs):
-			self.field = field
-			super().__init__(**kwargs)
-
-		def eval(self, values, x):
-			K = Function(Vh) # NOTE: K is a function in the same space as the random field
-			K.vector()[:] = np.exp(self.field)
-			values[0] = K(x)
-
-		def value_shape(self):
-			return ()
+	# Random field definition
 
 	l = 0.1 # length scale
 	kernel = lambda r: np.exp(- np.abs(r) / l)
 	G = GaussianRandomField(mesh, kernel=kernel, upto=50) # Euclidean version
 
-	def Darcy_solver(seed):
+	def Darcy_solver(K_sample):
 		"""
 		Solve the Darcy problem for a given instance of the input random field.
 		"""
@@ -88,10 +91,11 @@ if __name__ == '__main__':
 		p, mu = TrialFunctions(Wh)
 		q, nu = TestFunctions(Wh)
 
+		# Injection term as an expression
 		f = Injection(w, r, degree=0) # f only takes constant values
 
 		# Gaussian random field as an expression
-		K = Field(G.sample(seed), degree=1)
+		K = Field(K_sample, Vh, degree=1)
 
 		# Variational problem
 		a = K * dot(grad(p), grad(q)) * dx + nu * p * dx + mu * q * dx
@@ -103,15 +107,13 @@ if __name__ == '__main__':
 
 		# Compute u from p
 		RT_elem = FiniteElement('RT', mesh.ufl_cell(), 3)
-		Vh = FunctionSpace(mesh, RT_elem)
-		u = Function(Vh)
-		u.assign(project(- K * grad(p), Vh))
+		Uh = FunctionSpace(mesh, RT_elem)
+		u = Function(Uh)
+		u.assign(project(- K * grad(p), Uh))
 
 		return u, p
 	
 	print("Generating snapshots...")
-
-	Vh = FunctionSpace(mesh, 'CG', 1) # used for K, p and the components of u
 
 	K_data = np.zeros((args.num_snapshots, Vh.dim()))
 	p_data = np.zeros((args.num_snapshots, Vh.dim()))
@@ -124,24 +126,23 @@ if __name__ == '__main__':
 
 		if n % 100 == 0:
 			print(f'Generating snapshot {n+1} of {args.num_snapshots} (elapsed time: {time.time() - timer_start:.2f} s)')
+
+		K_sample = np.exp(G.sample(n))
 		
-		u, p = Darcy_solver(G, n)
+		u, p = Darcy_solver(K_sample)
 
 		u_x = project(u[0], Vh)
 		u_y = project(u[1], Vh)
 
-		K_data[n] = np.exp(G.sample(n))
+		K_data[n] = K_sample
 		p_data[n] = p.vector().get_local()
 		u_x_data[n] = u_x.vector().get_local()
 		u_y_data[n] = u_y.vector().get_local()
 
 	N_train = int(0.9 * args.num_snapshots)
-	np.save(os.path.join(args.output_dir, 'K_train.npy'), K_data[:N_train])
-	np.save(os.path.join(args.output_dir, 'p_train.npy'), p_data[:N_train])
-	np.save(os.path.join(args.output_dir, 'u_x_train.npy'), u_x_data[:N_train])
-	np.save(os.path.join(args.output_dir, 'u_y_train.npy'), u_y_data[:N_train])
 
-	np.save(os.path.join(args.output_dir, 'K_test.npy'), K_data[N_train:])
-	np.save(os.path.join(args.output_dir, 'p_test.npy'), p_data[N_train:])
-	np.save(os.path.join(args.output_dir, 'u_x_test.npy'), u_x_data[N_train:])
-	np.save(os.path.join(args.output_dir, 'u_y_test.npy'), u_y_data[N_train:])
+	np.savez(os.path.join(args.output_dir, 'snapshots_train.npz'), 
+			 K=K_data[:N_train], p=p_data[:N_train], u_x=u_x_data[:N_train], u_y=u_y_data[:N_train])
+	
+	np.savez(os.path.join(args.output_dir, 'snapshots_test.npz'), 
+			 K=K_data[N_train:], p=p_data[N_train:], u_x=u_x_data[N_train:], u_y=u_y_data[N_train:])
