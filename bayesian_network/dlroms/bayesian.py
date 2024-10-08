@@ -348,8 +348,8 @@ class Bayesian(nn.Module):
         super(Bayesian, self).__init__()
         
         # NOTE: the ROM parent class Compound does not have a 'forward' method, so it cannot be used here
-        # if not isinstance(model, ROM):
-        #     raise TypeError(f"Model {torch.typename(model)} must be a ROM model or one of its subclasses.")
+        if not isinstance(model, ROM):
+            raise TypeError(f"Model {torch.typename(model)} must be a ROM model or one of its subclasses.")
         self.model = model
 
         # Prior for log precision of weights
@@ -357,7 +357,6 @@ class Bayesian(nn.Module):
         self.alpha_b = 0.05 # prior rate
 
         # Additive noise model
-        # TODO: better option than adding log_beta to the ROM model?
         self.beta_a = 2. # noise precision shape
         self.beta_b = 1e-6 # noise precision rate
         self.log_beta = Parameter(torch.log(Gamma(self.beta_a, self.beta_b).sample((1,)))) # TODO: set device
