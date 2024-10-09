@@ -51,7 +51,7 @@ def vector_to_parameters(vec, parameters, grad=True):
             idx += num_param
 
 
-def gaussian_log_likelihood(target, output, beta):
+def gaussian_log_likelihood(target, output, log_beta, ntrain):
     """
     Gaussian log-likelihood (un-normalized).
     Input:
@@ -59,14 +59,14 @@ def gaussian_log_likelihood(target, output, beta):
         output (torch.Tensor): predicted values
         beta (torch.Tensor): precision
     """
-    return torch.sum(- 0.5 * torch.numel(target) * torch.log(beta) - 0.5 * beta * (target - output) ** 2)
+    return ntrain / output.shape[0] * (0.5 * torch.numel(target) * log_beta - 0.5 * torch.exp(log_beta) * torch.sum((target - output) ** 2))
 
 
-def laplace_log_likelihood(target, output, beta):
+def laplace_log_likelihood(target, output, log_beta, ntrain):
     """
     Laplace log-likelihood (un-normalized).
     """
-    return torch.sum(- torch.numel(target) * torch.log(beta) - beta * torch.abs((target - output)))
+    return ntrain / output.shape[0] * (torch.numel(target) * log_beta - torch.exp(log_beta) * torch.sum(torch.abs((target - output))))
 
 
 ##########################################
@@ -203,6 +203,7 @@ class SVGD(VariationalInference):
 
         # Store n_samples instances of the optimizer
         # NOTE: LBFGS does not support per-parameter options and parameter groups
+        # TODO: add scheduler?
         optimizers = []
         for idx in range(n_samples):
             parameters = [{'params': self.models[idx].model.parameters()}, # parameters of the ROM model
@@ -321,8 +322,9 @@ class SVGD(VariationalInference):
 
         output_mean = torch.mean(outputs, dim=0) # E[y + n] = E[y] since the additive noise has zero mean
         output_var = torch.var(outputs, dim=0)
-        beta = torch.exp(self.bayes.log_beta)
-        noise_var = beta.data.item() # TODO: check if beta has been updated
+
+        betas_inv = torch.tensor([torch.exp(-model.log_beta).item() for model in self.models[:n_samples]]).to(device)
+        noise_var = torch.mean(betas_inv)
 
         return output_mean, output_var + noise_var
 
@@ -334,7 +336,7 @@ class SVGD(VariationalInference):
 # TODO: add device selection
 # TODO: add freeze method (requires_grad=False)
 
-class Bayesian(nn.Module):
+class Bayesian(nn.Sequential):
     """
     Base class for Bayesian neural networks.
 
@@ -353,13 +355,16 @@ class Bayesian(nn.Module):
         self.model = model
 
         # Prior for log precision of weights
+        # TODO: set as static?
         self.alpha_a = 1. # prior shape
         self.alpha_b = 0.05 # prior rate
 
         # Additive noise model
+        # TODO: set as static?
         self.beta_a = 2. # noise precision shape
         self.beta_b = 1e-6 # noise precision rate
-        self.log_beta = Parameter(torch.log(Gamma(self.beta_a, self.beta_b).sample((1,)))) # TODO: set device
+        self.log_beta = Parameter(torch.log(Gamma(self.beta_a, self.beta_b).sample((1,))))
+        self.log_beta.data = self.log_beta.to(device) # TODO: get device from ROM?
 
         if noise == 'gaussian':
             self.log_likelihood = gaussian_log_likelihood
@@ -381,6 +386,7 @@ class Bayesian(nn.Module):
         """
         self.model.He(linear=linear, a=a, seed=seed) # calls the ROM 'He' method
         self.log_beta = Parameter(torch.log(Gamma(self.beta_a, self.beta_b).sample((1,)))) # TODO: set device
+        self.log_beta.data = self.log_beta.to(device) # TODO: check if necessary
 
     @torch.no_grad()
     def Xavier(self):
@@ -388,6 +394,19 @@ class Bayesian(nn.Module):
         """
         self.model.Xavier() # calls the ROM 'Xavier' method
         self.log_beta = Parameter(torch.log(Gamma(self.beta_a, self.beta_b).sample((1,))))
+        self.log_beta.data = self.log_beta.to(device) # TODO: check if necessary
+
+    # def cuda(self):
+    #     """Move model to GPU.
+    #     """
+    #     self.model.cuda()
+    #     self.log_beta.data = self.log_beta.to('cuda:0')
+
+    # def cpu(self):
+    #     """Move model to CPU.
+    #     """
+    #     self.model.cpu()
+    #     self.log_beta.data = self.log_beta.to('cpu')
 
     def forward(self, *args, **kwargs):
         if self.trainer is None:
@@ -397,7 +416,8 @@ class Bayesian(nn.Module):
     # TODO: replace analytical log posterior with numerical approximation?
     def log_posterior(self, target, output, ntrain):
 
-        log_likelihood = self.log_likelihood(target, output, torch.exp(self.log_beta)) # TODO: normalization constant ntrain / target.size[0]?
+        log_likelihood = self.log_likelihood(target, output, self.log_beta, ntrain) # TODO: normalization constant ntrain / target.size[0]?
+        log_likelihood = torch.sum(log_likelihood) # return a scalar
 
         # log StudentT(w | mu, lambda = a / b, nu = 2 * a)
         log_prior_w = torch.tensor(0.0).to(device) # TODO: where is device defined?
