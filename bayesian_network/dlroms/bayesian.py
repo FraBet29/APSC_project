@@ -39,13 +39,11 @@ def vector_to_parameters(vec, parameters, grad=True):
     idx = 0
     if grad:
         for param in parameters:
-            # The length of the parameter
             num_param = torch.prod(torch.LongTensor(list(param.size())))
             param.grad.data = vec[idx:idx+num_param].view(param.size())
             idx += num_param
     else:
         for param in parameters:
-            # The length of the parameter
             num_param = torch.prod(torch.LongTensor(list(param.size())))
             param.data = vec[idx:idx+num_param].view(param.size())
             idx += num_param
@@ -216,6 +214,34 @@ class SVGD(VariationalInference):
     def __getitem__(self, idx):
         return self.models[idx]
 
+    def get_particles(self):
+        """Return the particles (models) of the ensemble as a dictionary."""
+        particles = {}
+        for idx, model in enumerate(self.models):
+            particles[f"bayes.{idx}"] = model.state_dict()
+        return particles
+    
+    def save_particles(self, path):
+        """Save the particles (models) of the ensemble as a dictionary."""
+        particles = self.get_particles()
+        torch.save(particles, path)
+
+    def update_bayes(self):
+        theta = []
+        for i in range(self.n_samples):
+            vec_param = parameters_to_vector(self.models[i].parameters(), grad=False)
+            theta.append(torch.unsqueeze(vec_param, 0))
+        theta = torch.cat(theta)
+        theta_mean = torch.mean(theta, dim=0)
+        vector_to_parameters(theta_mean, self.bayes.parameters(), grad=False)
+
+    def load_particles(self, path):
+        """Load the particles (models) of the ensemble from a previous training."""
+        particles = torch.load(path, weights_only=True)
+        for idx, model in enumerate(self.models):
+            model.load_state_dict(particles[f"bayes.{idx}"])
+        self.update_bayes()
+
     def forward(self, input):
         """
         Returns the output of the ensemble of models.
@@ -311,6 +337,10 @@ class SVGD(VariationalInference):
 
                 pbar.set_description(f"Epoch: {epoch + 1}/{epochs}, train: {err[-1][0]:.6f}, valid: {err[-1][1]} test: {err[-1][2]:.6f}")
                 pbar.update()
+
+        # Update the Bayesian model
+        self.update_bayes()
+
 
     @torch.no_grad()
     def sample(self, input, n_samples):
