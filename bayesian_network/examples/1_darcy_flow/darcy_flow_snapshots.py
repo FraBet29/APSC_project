@@ -4,7 +4,7 @@ import argparse
 import numpy as np
 from dlroms import *
 from dlroms.gp import GaussianRandomField
-from dolfin import *
+from fenics import *
 import gmsh
 
 
@@ -30,15 +30,16 @@ class Injection(UserExpression):
 
 # Input random field
 class Field(UserExpression):
+
 	def __init__(self, field, space, **kwargs):
-		self.field = field
+		K = Function(space)
+		K.vector()[:] = field
+		self.field = K
 		self.space = space
 		super().__init__(**kwargs)
 
 	def eval(self, values, x):
-		K = Function(self.space)
-		K.vector()[:] = self.field
-		values[0] = K(x)
+		values[0] = self.field(x)
 
 	def value_shape(self):
 		return ()
@@ -51,11 +52,15 @@ if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description="Generate snapshots for Darcy flow example.")
 
 	parser.add_argument('--num_snapshots', type=int, required=True, help="Number of snapshots to generate.")
-	# parser.add_argument('--mode', type=str, choices=['h2h', 'h2c', 'c2c'], required=True, help="Mode of snapshot generation.")
+	parser.add_argument('--mode', type=str, choices=['C', 'H'], required=True, help="Mode of snapshot generation.")
+	parser.add_argument('--train_test_split', type=float, default=0.9, help="Split generated snapshots into training and test sets.")
 	parser.add_argument('--output_dir', type=str, default='snapshots', help="Output directory for snapshots.")
 	parser.add_argument('--verbose', action='store_true', help="Verbose output.")
 
 	args = parser.parse_args()
+
+	if args.train_test_split < 0 or args.train_test_split > 1:
+		raise ValueError("Invalid fraction of training snapshots provided.")
 
 	if not os.path.exists(args.output_dir):
 		os.makedirs(args.output_dir)
@@ -63,8 +68,12 @@ if __name__ == '__main__':
 	# Domain and mesh definition
 
 	domain = fe.rectangle((0.0, 0.0), (1.0, 1.0))
-	# mesh = fe.mesh(domain, stepsize=0.05)
-	mesh = fe.mesh(domain, stepsize=0.02)
+
+	if args.mode == 'C':
+		mesh = fe.mesh(domain, stepsize=0.05)
+	elif args.mode == 'H':
+		mesh = fe.mesh(domain, stepsize=0.02)
+	
 	Vh = fe.space(mesh, 'CG', 1) # used for K, p and the components of u
 
 	# Random field definition
@@ -124,8 +133,7 @@ if __name__ == '__main__':
 
 	for n in range(args.num_snapshots):
 
-		if n % 100 == 0:
-			print(f'Generating snapshot {n+1} of {args.num_snapshots} (elapsed time: {time.time() - timer_start:.2f} s)')
+		print(f'Generating snapshot {n+1} of {args.num_snapshots} (elapsed time: {time.time() - timer_start:.2f} s)')
 
 		K_sample = np.exp(G.sample(n))
 		
@@ -139,10 +147,8 @@ if __name__ == '__main__':
 		u_x_data[n] = u_x.vector().get_local()
 		u_y_data[n] = u_y.vector().get_local()
 
-	N_train = int(0.9 * args.num_snapshots)
-
-	np.savez(os.path.join(args.output_dir, 'snapshots_train.npz'), 
-			 K=K_data[:N_train], p=p_data[:N_train], u_x=u_x_data[:N_train], u_y=u_y_data[:N_train])
-	
-	np.savez(os.path.join(args.output_dir, 'snapshots_test.npz'), 
-			 K=K_data[N_train:], p=p_data[N_train:], u_x=u_x_data[N_train:], u_y=u_y_data[N_train:])
+	N_train = int(args.train_test_split * args.num_snapshots)
+	np.savez(os.path.join(args.output_dir, 'snapshots_train_' + args.mode + '.npz'), 
+				K=K_data[:N_train], p=p_data[:N_train], u_x=u_x_data[:N_train], u_y=u_y_data[:N_train])
+	np.savez(os.path.join(args.output_dir, 'snapshots_test_' + args.mode + '.npz'), 
+				K=K_data[N_train:], p=p_data[N_train:], u_x=u_x_data[N_train:], u_y=u_y_data[N_train:])
