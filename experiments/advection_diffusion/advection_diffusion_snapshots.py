@@ -43,7 +43,7 @@ def sampler(seed, V):
 
 if __name__ == '__main__':
 
-	parser = argparse.ArgumentParser(description="Generate snapshots for model problem with autoencoder example.")
+	parser = argparse.ArgumentParser(description="Generate snapshots for advection-diffusion example.")
 
 	parser.add_argument('--num_snapshots', type=int, help="Number of snapshots to generate.")
 	parser.add_argument('--multi_fidelity', action='store_true', help="Generate multi-fidelity snapshots.")
