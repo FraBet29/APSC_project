@@ -95,6 +95,13 @@ class SVGD(VariationalInference):
             particles[f"bayes.{idx}"] = model.state_dict()
         return particles
     
+    def load_particles(self, path):
+        """Load the particles (models) of the ensemble from a previous training."""
+        particles = torch.load(path, weights_only=True, map_location=self.device)
+        for idx, model in enumerate(self.models):
+            model.load_state_dict(particles[f"bayes.{idx}"])
+        self.update_bayes()
+    
     def save_particles(self, path):
         """Save the particles (models) of the ensemble as a dictionary."""
         particles = self.get_particles()
@@ -108,13 +115,6 @@ class SVGD(VariationalInference):
         theta = torch.cat(theta)
         theta_mean = torch.mean(theta, dim=0)
         vector_to_parameters(theta_mean, self.bayes.parameters(), grad=False)
-
-    def load_particles(self, path):
-        """Load the particles (models) of the ensemble from a previous training."""
-        particles = torch.load(path, map_location=self.device)
-        for idx, model in enumerate(self.models):
-            model.load_state_dict(particles[f"bayes.{idx}"])
-        self.update_bayes()
 
     def He(self, linear=False, a=0.1, seed=None):
         """He initialization.
@@ -196,33 +196,32 @@ class SVGD(VariationalInference):
                 for model in self.models:
                     model.zero_grad()
 
-                grad_log_posterior = [] # gradients of log posterior
-                theta = [] # model parameters (particles)
-
-                Upred = torch.zeros_like(getout(Utrain))
+                log_posterior = 0.
 
                 for i in range(self.n_samples):
-
                     Upred_i = self.models[i].model.forward(*(Mtrain)) # call the ROM 'forward()' method
-                    Upred += Upred_i.detach()
+                    log_posterior_i = self.models[i]._log_posterior(Upred_i, getout(Utrain), ntrain) # compute log posterior
+                    log_posterior += log_posterior_i
+                    
+                log_posterior.backward() # compute gradients of log posterior
 
-                    log_posterior_i = self.models[i]._log_posterior(Upred_i, getout(Utrain), ntrain)
-                    log_posterior_i.backward() # compute gradients of log posterior
+                theta = [] # model parameters (particles)
+                grad_log_posterior = [] # gradients of log posterior
 
+                for i in range(self.n_samples):
                     vec_param, vec_grad_log_posterior = parameters_to_vector(self.models[i].parameters(), grad=True)
-                    grad_log_posterior.append(torch.unsqueeze(vec_grad_log_posterior, 0)) # concatenate log joint gradients
-                    theta.append(torch.unsqueeze(vec_param, 0)) # concatenate parameters
+                    grad_log_posterior.append(vec_grad_log_posterior) # concatenate log joint gradients
+                    theta.append(vec_param) # concatenate parameters
 
-                theta = torch.cat(theta)
-                grad_log_posterior = torch.cat(grad_log_posterior)
+                theta = torch.stack(theta)
+                grad_log_posterior = torch.stack(grad_log_posterior)
 
-                ### SVGD update ###
-                Kxx, dxKxx = self.kernel(theta)
-                grad_theta = - (torch.mm(Kxx, grad_log_posterior) + dxKxx) / self.n_samples
+                Kxx, dxKxx = self.kernel(theta) # compute kernel and its gradient
+                grad_theta = - (torch.mm(Kxx, grad_log_posterior) + dxKxx) / self.n_samples # SVGD update
             
                 for i in range(self.n_samples):
                     vector_to_parameters(grad_theta[i], self.models[i].parameters(), grad=True)
-                    optimizers[i].step()
+                    optimizers[i].step() # update parameters
                 
                 err.append([errorf(getout(Utrain), self(*Mtrain)).item(), validerr(), testerr()])
 
