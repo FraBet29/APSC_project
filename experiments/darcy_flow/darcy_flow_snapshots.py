@@ -53,6 +53,7 @@ if __name__ == '__main__':
 
 	parser.add_argument('--num_snapshots', type=int, required=True, help="Number of snapshots to generate.")
 	parser.add_argument('--mode', type=str, choices=['C', 'H'], required=True, help="Mode of snapshot generation.")
+	parser.add_argument('--resolution', type=int, default=50, help="Resolution of the Gaussian random field.")
 	parser.add_argument('--train_test_split', type=float, default=0.9, help="Split generated snapshots into training and test sets.")
 	parser.add_argument('--output_dir', type=str, default='snapshots', help="Output directory for snapshots.")
 	parser.add_argument('--verbose', action='store_true', help="Verbose output.")
@@ -80,7 +81,7 @@ if __name__ == '__main__':
 
 	l = 0.1 # length scale
 	kernel = lambda r: np.exp(- np.abs(r) / l)
-	G = GaussianRandomField(mesh, kernel=kernel, upto=50) # Euclidean version
+	G = GaussianRandomField(mesh, kernel=kernel, upto=args.resolution) # Euclidean version
 
 	def Darcy_solver(K_sample):
 		"""
@@ -115,7 +116,7 @@ if __name__ == '__main__':
 		p, mu = w.split(True)
 
 		# Compute u from p
-		RT_elem = FiniteElement('RT', mesh.ufl_cell(), 3)
+		RT_elem = FiniteElement('RT', mesh.ufl_cell(), 3) # Raviart-Thomas element
 		Uh = FunctionSpace(mesh, RT_elem)
 		u = Function(Uh)
 		u.assign(project(- K * grad(p), Uh))

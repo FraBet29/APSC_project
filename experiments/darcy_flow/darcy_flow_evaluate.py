@@ -1,9 +1,11 @@
+import numpy as np
+import torch
+import matplotlib.pyplot as plt
+
+from dolfin import *
 from dlroms import *
 from dlroms.dnns import *
-from dolfin import *
-import numpy as np
-import matplotlib.pyplot as plt
-import torch
+
 import argparse
 import os
 
@@ -19,7 +21,7 @@ if __name__ == '__main__':
 
 	args = parser.parse_args()
 
-	device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+	device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 	# Domain, mesh, and function space definition
 
@@ -73,7 +75,7 @@ if __name__ == '__main__':
 
 	p_model = DFNN(psi, psi_prime)
 	p_model_refined = DFNN(layer_in, p_model, layer_out)
-	p_model_refined.load_state_dict(torch.load(os.path.join(args.checkpoint_dir, "p_model_H.pth"), map_location=device))
+	p_model_refined.load_state_dict(torch.load(os.path.join(args.checkpoint_dir, "p_model_H.pth"), map_location=device, weights_only=True))
 
 	if torch.cuda.is_available():
 		p_model_refined.cuda()
@@ -85,7 +87,7 @@ if __name__ == '__main__':
 
 	u_x_model = DFNN(psi, psi_prime)
 	u_x_model_refined = DFNN(layer_in, u_x_model, layer_out)
-	u_x_model_refined.load_state_dict(torch.load(os.path.join(args.checkpoint_dir, "u_x_model_H.pth"), map_location=device))
+	u_x_model_refined.load_state_dict(torch.load(os.path.join(args.checkpoint_dir, "u_x_model_H.pth"), map_location=device, weights_only=True))
 
 	if torch.cuda.is_available():
 		u_x_model_refined.cuda()
@@ -95,7 +97,7 @@ if __name__ == '__main__':
 
 	u_y_model = DFNN(psi, psi_prime)
 	u_y_model_refined = DFNN(layer_in, u_y_model, layer_out)
-	u_y_model_refined.load_state_dict(torch.load(os.path.join(args.checkpoint_dir, "u_y_model_H.pth"), map_location=device))
+	u_y_model_refined.load_state_dict(torch.load(os.path.join(args.checkpoint_dir, "u_y_model_H.pth"), map_location=device, weights_only=True))
 
 	if torch.cuda.is_available():
 		u_y_model_refined.cuda()
@@ -113,10 +115,10 @@ if __name__ == '__main__':
 	u_y_error_refined = mre(l2_H)(u_y_test_H, u_y_pred_refined)
 	u_error_refined = mre(l2_H)(u_test_H, u_pred_refined)
 
-	print(f"Pressure error (refined model): {100 * p_error_refined:.2f}%")
-	print(f"Velocity error, x-component (refined model): {100 * u_x_error_refined:.2f}%")
-	print(f"Velocity error, y-component (refined model): {100 * u_y_error_refined:.2f}%")
-	print(f"Velocity error, magnitude (refined model): {100 * u_error_refined:.2f}%")
+	print(f"Pressure error (high-res.): {100 * p_error_refined:.2f}%")
+	print(f"Velocity error, x-component (high-res.): {100 * u_x_error_refined:.2f}%")
+	print(f"Velocity error, y-component (high-res.): {100 * u_y_error_refined:.2f}%")
+	print(f"Velocity error, magnitude (high-res.): {100 * u_error_refined:.2f}%")
 
 	# Save results
 
