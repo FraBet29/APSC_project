@@ -1,11 +1,14 @@
 from __future__ import annotations
+from typing import Optional
 
 import torch
 import torch.nn as nn
 from torch.nn.parameter import Parameter
 
 import dlroms
-from dlroms_bayesian.distributions import *
+from dlroms_bayesian.utils import *
+from dlroms_bayesian.expansions import *
+from dlroms.utils import *
 
 
 class VariationalInference(object):
@@ -76,7 +79,7 @@ class Bayesian(nn.Module):
         self.beta_a = 2. # noise precision shape
         self.beta_b = 1e-6 # noise precision rate
         self.log_beta = Parameter(torch.log(Gamma(self.beta_a, self.beta_b).sample((1,))))
-        self.log_beta.data = self.log_beta.to(self.device)
+        # self.log_beta.data = self.log_beta.to(self.device)
 
         if noise == 'gaussian':
             self.log_likelihood = gaussian_log_likelihood
@@ -90,31 +93,42 @@ class Bayesian(nn.Module):
             raise TypeError(f"Trainer {torch.typename(trainer)} must be a VariationalInference instance.")
         self.trainer = trainer
 
+    @torch.no_grad
+    def _reset_log_beta(self):
+        self.log_beta.copy_(torch.log(Gamma(self.beta_a, self.beta_b).sample((1,))))
+
     def He(self, linear=False, a=0.1, seed=None):
         """He initialization.
         """
         self.model.He(linear=linear, a=a, seed=seed) # calls the ROM 'He' method
-        self.log_beta = Parameter(torch.log(Gamma(self.beta_a, self.beta_b).sample((1,))))
+        self._reset_log_beta()
 
-    def Hybrid(self, x1, x2):
+    def deterministic(self, x1, x2):
+        """
+        Deterministic initialization.
+        """
+        self.model.deterministic(x1, x2)
+        self._reset_log_beta()
+
+    def hybrid(self, x1, x2):
         """Hybrid initialization.
         """
-        self.model.Hybrid(x1, x2)
-        self.log_beta = Parameter(torch.log(Gamma(self.beta_a, self.beta_b).sample((1,))))
+        self.model.hybrid(x1, x2)
+        self._reset_log_beta()
 
     def cuda(self):
         """Move model to GPU.
         """
         self.device = torch.device('cuda')
         self.model.cuda()
-        self.log_beta.data = self.log_beta.to(self.device)
+        self.log_beta = self.log_beta.to(self.device)
 
     def cpu(self):
         """Move model to CPU.
         """
         self.device = torch.device('cpu')
         self.model.cpu()
-        self.log_beta.data = self.log_beta.to(self.device)
+        self.log_beta = self.log_beta.to(self.device)
 
     def count_parameters(self):
         """Count the number of parameters in the model.
@@ -130,9 +144,8 @@ class Bayesian(nn.Module):
         return torch.sum(log_likelihood + log_prior_log_beta) # return a scalar
 
     def _log_prior(self) -> torch.Tensor:
-        """Compute the log prior on the parameters (weights).
+        """Compute the log prior on the parameters (t-distribution).
         """
-        # log StudentT(w | mu, lambda = a / b, nu = 2 * a)
         log_prior_w = torch.tensor(0.0).to(self.device)
         for param in self.model.parameters():
             log_prior_w += torch.sum(torch.log1p(0.5 / self.alpha_b * param ** 2))

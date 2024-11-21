@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import Union, Iterator, Optional
 
 import torch
 import torch.nn as nn
@@ -8,27 +9,23 @@ import math
 from copy import deepcopy
 from tqdm import tqdm
 
-from typing import Union
-
 from dlroms_bayesian.bayesian import VariationalInference
 
 
-def parameters_to_vector(parameters, grad=True):
+def parameters_to_vector(parameters: Iterator[nn.Parameter], grad: bool = True):
     """Convert parameters (and their gradients) to a tensor."""
-    if not grad:
-        vec_params = []
-        for param in parameters:
-            vec_params.append(param.data.view(-1))
-        return torch.cat(vec_params)
-    else:
+    if grad:
         vec_params, vec_grads = [], []
         for param in parameters:
             vec_params.append(param.data.view(-1))
             vec_grads.append(param.grad.data.view(-1))
         return torch.cat(vec_params), torch.cat(vec_grads)
+    else:
+        vec_params = [param.data.view(-1) for param in parameters]
+        return torch.cat(vec_params)
 
 
-def vector_to_parameters(vec, parameters, grad=True):
+def vector_to_parameters(vec: torch.Tensor, parameters: Iterator[nn.Parameter], grad: bool = True):
     """Convert one vector to the parameters or gradients of the parameters."""
     idx = 0
     if grad:
@@ -43,20 +40,38 @@ def vector_to_parameters(vec, parameters, grad=True):
             idx += num_param
 
 
-# TODO: convert to class?
-def RBF_kernel(X, h=-1):
+class Kernel(object):
+    """
+    Abstract class for kernels.
+    """
+    def __init__(self):
+        pass
 
-    X_norm_squared = torch.sum(X ** 2, dim=1, keepdim=True)
-    pairwise_dists_squared = X_norm_squared + X_norm_squared.T - 2 * torch.mm(X, X.T)
+    def __call__(self):
+        raise NotImplementedError("The '__call__' method must be implemented in a derived class.")
 
-    if h < 0: # if h < 0, use median trick
-        h = torch.median(pairwise_dists_squared)
-        h = math.sqrt(0.5 * h / math.log(X.shape[0]))
 
-    Kxx = torch.exp(-0.5 * pairwise_dists_squared / h ** 2)
-    dxKxx = (torch.diag(torch.sum(Kxx, 1)) - Kxx) @ X / (h ** 2)
+class RBF_kernel(Kernel):
+    """
+    Radial basis function kernel.
+    """
+    def __init__(self, h=-1):
+        super(RBF_kernel, self).__init__()
+        self.h = h
 
-    return Kxx, dxKxx
+    def __call__(self, X):
+        
+        X_norm_squared = torch.sum(X ** 2, dim=1, keepdim=True)
+        pairwise_dists_squared = X_norm_squared + X_norm_squared.T - 2 * torch.mm(X, X.T)
+
+        if self.h < 0: # if h < 0, use median trick
+            self.h = torch.median(pairwise_dists_squared)
+            self.h = math.sqrt(0.5 * self.h / math.log(X.shape[0]))
+
+        Kxx = torch.exp(-0.5 * pairwise_dists_squared / self.h ** 2)
+        dxKxx = (torch.diag(torch.sum(Kxx, 1)) - Kxx) @ X / (self.h ** 2)
+
+        return Kxx, dxKxx
 
 
 class SVGD(VariationalInference):
@@ -71,7 +86,7 @@ class SVGD(VariationalInference):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
         if kernel == 'rbf':
-            self.kernel = RBF_kernel
+            self.kernel = RBF_kernel()
         else:
             raise ValueError(f"Kernel type {kernel} is not supported.")
 
@@ -80,7 +95,7 @@ class SVGD(VariationalInference):
         for _ in range(n_samples):
             model = deepcopy(bayes)
             # if torch.cuda.is_available():
-            #     model.cuda() # NOTE: shouln't be necessary
+            #     model.cuda()
             models.append(model)
         self.models = models # list of Bayesian models
         del models
@@ -123,37 +138,33 @@ class SVGD(VariationalInference):
         for model in self.models:
             model.He(linear=linear, a=a, seed=seed)
 
-    def Hybrid(self, x1, x2):
+    def hybrid(self, x1, x2):
         """Hybrid initialization.
         """
-        self.bayes.Hybrid(x1, x2)
+        self.bayes.hybrid(x1, x2)
         for model in self.models:
-            model.Hybrid(x1, x2)
+            model.hybrid(x1, x2)
 
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
+    def forward(self, input: torch.Tensor, reduce: bool = True) -> torch.Tensor:
         """
-        Returns the output of the ensemble of models.
+        Returns either the average output of the ensemble of models or the outputs of each model.
         """
-        outputs = []
-        for idx in range(self.n_samples):
-            outputs.append(self.models[idx].model.forward(input)) # calls the ROM 'forward()' method
+        outputs = [bayes.model.forward(input) for bayes in self.models] # calls the ROM 'forward()' method
         outputs = torch.stack(outputs)
-        return outputs
-    
-    def __call__(self, input: torch.Tensor) -> torch.Tensor:
-        """
-        Returns the average output of the ensemble of models.
-        """
-        output = torch.zeros_like(input)
-        for idx in range(self.n_samples):
-            output += self.models[idx].model.forward(input) # calls the ROM 'forward()' method
-        return output / self.n_samples
+        return torch.mean(outputs, dim=0) if reduce else outputs
 
-    # TODO: replace for loop with torch.stack?
+    def __call__(self, input: torch.Tensor, reduce: bool = True) -> torch.Tensor:
+        """
+        Calls the 'forward()' method.
+        """
+        return self.forward(input, reduce=reduce)
+
     def train(self, mu: Union[torch.Tensor, tuple[torch.Tensor, ...]], u: Union[torch.Tensor, tuple[torch.Tensor, ...]], 
-              ntrain: int, epochs: int, optim: torch.optim = torch.optim.Adam, lr: float = 0.01, lr_noise: float = 0.01, 
-              loss = None, error = None, nvalid: int = 0, batchsize: int = None):
-
+              ntrain: int, epochs: int, optim: torch.optim.Optimizer = torch.optim.Adam, lr: float = 0.01, lr_noise: float = 0.01, 
+              loss = None, error = None, nvalid: int = 0, batchsize: int = None, adaptive: bool = False, track_history: bool = False) -> Optional[tuple]:
+        """
+        Train the ensemble of models using SVGD.
+        """
         if not (self is self.bayes.trainer): # avoid calling a trainer different from the one set in the Bayesian model
             raise RuntimeError("The trainer must be set in the Bayesian model before training.")
 
@@ -169,6 +180,14 @@ class SVGD(VariationalInference):
                           {'params': [self.models[idx].log_beta], 'lr': lr_noise}]
             optimizer = optim(parameters, lr=lr)
             optimizers.append(optimizer)
+        
+        if adaptive:
+            schedulers = [torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=10) for optimizer in optimizers]
+
+        if track_history:
+            err_history = []
+            log_posterior_history = []
+            grad_theta_history = []
 
         M = (mu,) if(isinstance(mu, torch.Tensor)) else (mu if (isinstance(mu, tuple)) else None) # NOTE: same as ROM
         U = (u,) if(isinstance(u, torch.Tensor)) else (u if (isinstance(u, tuple)) else None)
@@ -185,10 +204,9 @@ class SVGD(VariationalInference):
 
         getout = (lambda y: y[0]) if len(U) == 1 else (lambda y: y)
         errorf = (lambda a, b: error(a, b)) if error != None else (lambda a, b: loss(a, b))
-        validerr = (lambda : np.nan) if nvalid == 0 else (lambda : errorf(getout(Uvalid), self(*Mvalid)).item())
-        testerr = (lambda : np.nan) if ntest == 0 else (lambda : errorf(getout(Utest), self(*Mtest)).item())
-
-        err = []
+        trainerr = lambda: errorf(getout(Utrain), self(*Mtrain)).item()
+        validerr = (lambda: np.nan) if nvalid == 0 else (lambda: errorf(getout(Uvalid), self(*Mvalid)).item())
+        testerr = (lambda: np.nan) if ntest == 0 else (lambda: errorf(getout(Utest), self(*Mtest)).item())
 
         with tqdm(total=epochs) as pbar:
             for epoch in range(epochs):
@@ -210,8 +228,8 @@ class SVGD(VariationalInference):
 
                 for i in range(self.n_samples):
                     vec_param, vec_grad_log_posterior = parameters_to_vector(self.models[i].parameters(), grad=True)
-                    grad_log_posterior.append(vec_grad_log_posterior) # concatenate log joint gradients
-                    theta.append(vec_param) # concatenate parameters
+                    grad_log_posterior.append(vec_grad_log_posterior)
+                    theta.append(vec_param)
 
                 theta = torch.stack(theta)
                 grad_log_posterior = torch.stack(grad_log_posterior)
@@ -222,28 +240,34 @@ class SVGD(VariationalInference):
                 for i in range(self.n_samples):
                     vector_to_parameters(grad_theta[i], self.models[i].parameters(), grad=True)
                     optimizers[i].step() # update parameters
-                
-                err.append([errorf(getout(Utrain), self(*Mtrain)).item(), validerr(), testerr()])
 
-                # Early stopping
-                if (nvalid > 0 and len(err) > 3): # check if validation error is increasing
-                    if ((err[-1][1] > err[-2][1]) and (err[-1][0] < err[-2][0])):
-                        if ((err[-2][1] > err[-3][1]) and (err[-2][0] < err[-3][0])):
-                            print("Early stopping.")
-                            break
+                err = (trainerr(), validerr(), testerr())
 
-                pbar.set_description(f"Epoch: {epoch + 1}/{epochs}, train: {err[-1][0]:.6f}, valid: {err[-1][1]} test: {err[-1][2]:.6f}")
+                if adaptive:
+                    metric = err[1] if nvalid > 0 else err[0]
+                    for scheduler in schedulers:
+                        scheduler.step(metric) # update learning rate
+
+                if track_history:
+                    err_history.append(err)
+                    log_posterior_history.append(log_posterior.item())
+                    grad_theta_history.append(torch.linalg.norm(grad_theta).item())
+
+                pbar.set_description(f"Epoch: {epoch + 1}/{epochs}, train: {err[0]:.3e}, valid: {err[1]:.3e}, test: {err[2]:.3e}")
                 pbar.update()
 
         # Update the Bayesian model
         self.update_bayes()
+
+        if track_history:
+            return err_history, log_posterior_history, grad_theta_history
 
     @torch.no_grad()
     def sample(self, input: torch.Tensor, n_samples: int) -> tuple[torch.Tensor, torch.Tensor]:
         if n_samples > self.n_samples:
             raise ValueError(f"The number of samples ({n_samples}) exceeds the number of instances ({self.n_samples}).")
 
-        outputs = self.forward(input)
+        outputs = self(input, reduce=False)
         outputs = outputs[:n_samples]
 
         output_mean = torch.mean(outputs, dim=0) # E[y + n] = E[y] since the additive noise has zero mean

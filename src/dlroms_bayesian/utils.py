@@ -1,5 +1,34 @@
 import torch
 import torch.distributions
+from dlroms.roms import mse
+
+
+def multi_mse(norm):
+    """
+    Returns a function to compute MSE, with optional reduction across the output channels.
+    """
+    def mse_fn(utrue, upred, reduce=True):
+        results = torch.stack([norm(utrue[:, c] - upred[:, c], squared=True) for c in range(utrue.shape[1])], dim=1)
+        return results.mean() if reduce else results.mean(0)
+    return mse_fn
+
+
+def multi_mre(norm):
+    """
+    Returns a function to compute MRE, with optional reduction across the output channels.
+    """
+    def mre_fn(utrue, upred, reduce=True):
+        results = torch.stack([(norm(utrue[:, c] - upred[:, c]) / norm(utrue[:, c])) for c in range(utrue.shape[1])], dim=1)
+        return results.mean() if reduce else results.mean(0)
+    return mre_fn
+
+
+def rsquared(norm):
+    """
+    Returns a function to compute the R-squared coefficient of determination.
+    """
+    def rsquared_fn(utrue, upred):
+        return 1. - mse(norm)(utrue, upred) / mse(norm)(utrue, utrue.mean(0))
 
 
 class Gaussian(object):

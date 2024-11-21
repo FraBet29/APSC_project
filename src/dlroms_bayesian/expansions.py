@@ -1,13 +1,32 @@
 import numpy
 import torch
 
-from dlroms.dnns import Sparse
+from dlroms.dnns import Weightless, Sparse
 from dlroms.fespaces import coordinates
+from dlroms.minns import Local, Geodesic
 
 
-class ExtendedSparse(Sparse):
+class Channel(Weightless):
+    """
+    Selects a channel from the input tensor.
+    """
+    def __init__(self, ch):
+        super().__init__()
+        self.ch = ch
+    
+    def forward(self, x):
+        return x[:, self.ch]
 
-    def Deterministic(self, x1, x2):
+
+class ExpandedSparse(Sparse):
+    """
+    Sparse layer with new initialization methods.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super(ExpandedSparse, self).__init__(*args, **kwargs)
+
+    def deterministic(self, x1, x2):
         """Initializes the weights of the layer in a deterministic way, based on the distance between the mesh nodes.
         """
         coordinates1 = x1 if(isinstance(x1, numpy.ndarray)) else coordinates(x1)
@@ -26,10 +45,26 @@ class ExtendedSparse(Sparse):
 
         self.weight = torch.nn.Parameter(self.core.tensor(W[self.loc]))
 
-    def Hybrid(self, x1, x2):
+    def hybrid(self, x1, x2):
         """Initializes the weights of the layer in a hybrid way, based on the distance between the mesh nodes and random values.
         """
-        self.Deterministic(x1, x2)
+        self.deterministic(x1, x2)
         nonzeros = len(self.loc[0]) # number of active weights
         eta = self.core.tensor(numpy.random.randn(nonzeros))
         self.weight = torch.nn.Parameter(eta * self.weight)
+
+
+class ExpandedLocal(Local, ExpandedSparse):
+    """
+    Local layer with new initialization methods.
+    """
+    def __init__(self, *args, **kwargs):
+        super(ExpandedLocal, self).__init__(*args, **kwargs)
+
+
+class ExpandedGeodesic(Geodesic, ExpandedSparse):
+    """
+    Geodesic layer with new initialization methods.
+    """
+    def __init__(self, *args, **kwargs):
+        super(ExpandedGeodesic, self).__init__(*args, **kwargs)
