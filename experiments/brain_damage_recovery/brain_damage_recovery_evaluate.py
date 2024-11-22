@@ -13,7 +13,7 @@ if __name__ == '__main__':
 
 	gmsh.initialize()
 
-	parser = argparse.ArgumentParser(description="Evaluate trained models for Darcy flow example.")
+	parser = argparse.ArgumentParser(description="Evaluate trained models for brain damage recovery example.")
 
 	parser.add_argument('--snapshot_dir', type=str, default='snapshots', help="Directory containing snapshots.")
 	parser.add_argument('--checkpoint_dir', type=str, default='checkpoints', help="Directory containing model checkpoints.")
@@ -92,6 +92,7 @@ if __name__ == '__main__':
 	plt.legend()
 	plt.tight_layout()
 	plt.savefig(os.path.join(args.output_dir, 'mean_recovery_time.png'))
+	plt.close()
 
 	# Compute maximum time-to-recovery
 
@@ -106,6 +107,7 @@ if __name__ == '__main__':
 	plt.legend()
 	plt.tight_layout()
 	plt.savefig(os.path.join(args.output_dir, 'max_recovery_time.png'))
+	plt.close()
 
 	if args.save_all:
 		for idx in range(N_test):

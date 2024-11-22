@@ -2,12 +2,13 @@ import os
 import time
 import argparse
 import numpy as np
-from dlroms import *
 import torch
 import gmsh
 import sys
-sys.path.append(os.path.join("..", "..", "dlroms")) # TODO: better alternative?
-from bayesian import *
+
+from dlroms import *
+from dlroms_bayesian.bayesian import Bayesian
+from dlroms_bayesian.svgd import SVGD
 
 
 if __name__ == '__main__':
@@ -16,6 +17,8 @@ if __name__ == '__main__':
 
 	parser = argparse.ArgumentParser(description="Evaluate trained models for Darcy flow example.")
 
+	parser.add_argument('--n_samples', type=int, default=70, help="Number of samples from the posterior.")
+	parser.add_argument('--alpha', type=float, default=0.01, help="Confidence level.")
 	parser.add_argument('--snapshot_dir', type=str, default='snapshots', help="Directory containing snapshots.")
 	parser.add_argument('--checkpoint_dir', type=str, default='checkpoints', help="Directory containing model checkpoints.")
 	parser.add_argument('--output_dir', type=str, default='results_bayesian', help="Output directory for results.")
@@ -26,7 +29,7 @@ if __name__ == '__main__':
 	if not os.path.exists(args.output_dir):
 		os.makedirs(args.output_dir)
 
-	device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+	device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 	# Domain definition
 
@@ -60,11 +63,6 @@ if __name__ == '__main__':
 	mu_test, u_test = data_test['mu'].astype(np.float32), data_test['u'].astype(np.float32)
 	mu_test, u_test = torch.tensor(mu_test).to(device), torch.tensor(u_test).to(device)
 
-	# Uncertainty quantification
-
-	N_samples = 70 # number of samples from the posterior
-	alpha = 0.1 # confidence level
-
 	# Bayesian network definition
 
 	layer_1 = Geodesic(domain, Vh_H, Vh_C, support=0.05) # default activation: leakyReLU
@@ -81,12 +79,12 @@ if __name__ == '__main__':
 	if torch.cuda.is_available():
 		model_bayes.cuda()
 
-	trainer = SVGD(model_bayes, n_samples=N_samples)
+	trainer = SVGD(model_bayes, n_samples=args.n_samples)
 	model_bayes.set_trainer(trainer)
-	trainer.load_particles(os.path.join(args.checkpoint_dir, "particles_" + str(N_samples) + ".pth"))
+	trainer.load_particles(os.path.join(args.checkpoint_dir, "particles_" + str(args.n_samples) + ".pth"))
 
 	with torch.no_grad():
-		u_pred_bayes_mean, u_pred_bayes_var = model_bayes.sample(mu_test, n_samples=N_samples)
+		u_pred_bayes_mean, u_pred_bayes_var = model_bayes.sample(mu_test, n_samples=args.n_samples)
 
 	# Compute relative test error
 
@@ -102,24 +100,26 @@ if __name__ == '__main__':
 	u_mean_full = torch.mean(u_pred_full, dim=2) # (N_samples, N_test)
 
 	# Confidence interval for mean time-to-recovery
-	u_mean_pred_lower = torch.quantile(u_mean_full, alpha / 2, dim=0)
-	u_mean_pred_upper = torch.quantile(u_mean_full, 1 - alpha / 2, dim=0)
+	u_mean_pred_lower = torch.quantile(u_mean_full, args.alpha / 2, dim=0)
+	u_mean_pred_upper = torch.quantile(u_mean_full, 1 - args.alpha / 2, dim=0)
 	u_mean_pred_median = torch.median(u_mean_full, dim=0).values
 
 	# Coverage
 	coverage = torch.mean(torch.logical_and(u_mean >= u_mean_pred_lower, u_mean <= u_mean_pred_upper), dtype=float).item()
-	print(f"Mean time to recovery coverage ({N_samples} samples, {1 - alpha:.0%} confidence): {100 * coverage:.2f}%")
+	print(f"Mean time to recovery coverage ({args.n_samples} samples, {1 - args.alpha:.0%}): {100 * coverage:.2f}%")
 
 	plt.figure(figsize=(12, 5))
-	plt.title(f"Mean time to recovery ({N_samples} samples)")
-	plt.plot(u_mean, 'b', label='True')
-	plt.plot(u_mean_pred_median, 'r')
-	plt.fill_between(range(N_test), u_mean_pred_lower.cpu(), u_mean_pred_upper.cpu(), color='r', alpha=0.2)
-	plt.xlabel("Snapshot index")
+	idxs = torch.argsort(u_mean)
+	plt.title(f"Mean time to recovery ({args.n_samples} samples)")
+	plt.plot(u_mean[idxs], 'b', label='True')
+	plt.plot(u_mean_pred_median[idxs], 'r')
+	plt.fill_between(range(N_test), u_mean_pred_lower[idxs].cpu(), u_mean_pred_upper[idxs].cpu(), color='r', alpha=0.2)
+	plt.xlabel("Snapshot index (sorted)")
 	plt.legend()
 	plt.tight_layout()
-	plt.savefig(os.path.join(args.output_dir, "mean_recovery_time_" + str(N_samples) + ".png"))
-
+	plt.savefig(os.path.join(args.output_dir, "mean_recovery_time_" + str(args.n_samples) + "_" + str(args.alpha) + ".png"))
+	plt.close()
+	
 	# Compute maximum time-to-recovery
 
 	with torch.no_grad():
@@ -129,23 +129,25 @@ if __name__ == '__main__':
 	u_max_full = torch.max(u_pred_full, dim=2).values # (N_samples, N_test)
 
 	# Confidence interval for maximum time-to-recovery
-	u_max_pred_lower = torch.quantile(u_max_full, alpha / 2, dim=0)
-	u_max_pred_upper = torch.quantile(u_max_full, 1 - alpha / 2, dim=0)
+	u_max_pred_lower = torch.quantile(u_max_full, args.alpha / 2, dim=0)
+	u_max_pred_upper = torch.quantile(u_max_full, 1 - args.alpha / 2, dim=0)
 	u_max_pred_median = torch.median(u_max_full, dim=0).values
 
 	# Coverage
 	coverage = torch.mean(torch.logical_and(u_max >= u_max_pred_lower, u_max <= u_max_pred_upper), dtype=float).item()
-	print(f"Maximum time to recovery coverage ({N_samples} samples, {1 - alpha:.0%} confidence): {100 * coverage:.2f}%")
+	print(f"Maximum time to recovery coverage ({args.n_samples} samples, {1 - args.alpha:.0%}): {100 * coverage:.2f}%")
 
 	plt.figure(figsize=(12, 5))
-	plt.title(f"Maximum time to recovery ({N_samples} samples)")
-	plt.plot(u_max, 'b', label='True')
-	plt.plot(u_max_pred_median, 'r')
-	plt.fill_between(range(N_test), u_max_pred_lower.cpu(), u_max_pred_upper.cpu(), color='r', alpha=0.2)
-	plt.xlabel("Snapshot index")
+	idxs = torch.argsort(u_max)
+	plt.title(f"Maximum time to recovery ({args.n_samples} samples)")
+	plt.plot(u_max[idxs], 'b', label='True')
+	plt.plot(u_max_pred_median[idxs], 'r')
+	plt.fill_between(range(N_test), u_max_pred_lower[idxs].cpu(), u_max_pred_upper[idxs].cpu(), color='r', alpha=0.2)
+	plt.xlabel("Snapshot index (sorted)")
 	plt.legend()
 	plt.tight_layout()
-	plt.savefig(os.path.join(args.output_dir, "max_recovery_time_" + str(N_samples) + ".png"))
+	plt.savefig(os.path.join(args.output_dir, "max_recovery_time_" + str(args.n_samples) + "_" + str(args.alpha) + ".png"))
+	plt.close()
 
 	if args.save_all:
 		
@@ -171,3 +173,4 @@ if __name__ == '__main__':
 			fe.plot(u_pred_bayes_var[idx], Vh_H, cmap='jet')
 			plt.tight_layout()
 			plt.savefig(os.path.join(args.output_dir, f"result_{idx}.png"))
+			plt.close()
