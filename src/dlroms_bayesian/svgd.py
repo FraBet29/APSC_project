@@ -308,6 +308,14 @@ class SVGD(VariationalInference):
 
     @torch.no_grad()
     def sample(self, input: torch.Tensor, n_samples: int) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Sample from the ensemble of models.
+        Args:
+            input: input tensor
+            n_samples: number of samples
+        Returns:
+            tuple[torch.Tensor, torch.Tensor]: mean and variance of the samples
+        """
         if n_samples > self.n_samples:
             raise ValueError(f"The number of samples ({n_samples}) exceeds the number of instances ({self.n_samples}).")
 

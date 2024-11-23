@@ -79,12 +79,14 @@ if __name__ == '__main__':
 	print("Generating snapshots...")
 
 	if args.multi_fidelity:
-		sampler_high = lambda seed: sampler(seed, V_H)
-		snapshots(n=args.num_snapshots_high, sampler=sampler_high, verbose=args.verbose,
-					filename=os.path.join(args.output_dir, 'snapshots_train_H_' + str(args.num_snapshots_high) + '.npz'))
-		sampler_low = lambda seed: sampler(seed + 1000, V_C)
-		snapshots(n=args.num_snapshots_low, sampler=sampler_low, verbose=args.verbose,
-					filename=os.path.join(args.output_dir, 'snapshots_train_C_' + str(args.num_snapshots_low) + '.npz'))
+		if args.num_snapshots_high > 0:
+			sampler_high = lambda seed: sampler(seed, V_H)
+			snapshots(n=args.num_snapshots_high, sampler=sampler_high, verbose=args.verbose,
+						filename=os.path.join(args.output_dir, 'snapshots_train_H_' + str(args.num_snapshots_high) + '.npz'))
+		if args.num_snapshots_low > 0:
+			sampler_low = lambda seed: sampler(seed + 1000, V_C)
+			snapshots(n=args.num_snapshots_low, sampler=sampler_low, verbose=args.verbose,
+						filename=os.path.join(args.output_dir, 'snapshots_train_C_' + str(args.num_snapshots_low) + '.npz'))
 	else:
 		sampler_test = lambda seed: sampler(seed + 10000, V_H)
 		snapshots(n=args.num_snapshots, sampler=sampler_test, verbose=args.verbose,
