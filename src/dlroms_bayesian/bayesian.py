@@ -8,7 +8,7 @@ from torch.nn.parameter import Parameter
 import dlroms
 from dlroms_bayesian.utils import *
 from dlroms_bayesian.expansions import *
-from dlroms.utils import *
+from dlroms_bayesian.utils import *
 
 
 class VariationalInference(object):
@@ -37,10 +37,13 @@ class VariationalInference(object):
 def gaussian_log_likelihood(target: torch.Tensor, output: torch.Tensor, log_beta: torch.Tensor, ntrain: int) -> torch.Tensor:
     """
     Gaussian log-likelihood (un-normalized).
-    Input:
+    Args:
         target (torch.Tensor): target values
         output (torch.Tensor): predicted values
-        beta (torch.Tensor): precision
+        log_beta (torch.Tensor): log precision
+        ntrain (int): number of training samples
+    Returns:
+        torch.Tensor: un-normalized log-likelihood
     """
     return ntrain / output.shape[0] * (0.5 * torch.numel(target) * log_beta - 0.5 * torch.exp(log_beta) * torch.sum((target - output) ** 2))
 
@@ -48,6 +51,13 @@ def gaussian_log_likelihood(target: torch.Tensor, output: torch.Tensor, log_beta
 def laplace_log_likelihood(target: torch.Tensor, output: torch.Tensor, log_beta: torch.Tensor, ntrain: int) -> torch.Tensor:
     """
     Laplace log-likelihood (un-normalized).
+    Args:
+        target (torch.Tensor): target values
+        output (torch.Tensor): predicted values
+        log_beta (torch.Tensor): log precision
+        ntrain (int): number of training samples
+    Returns:
+        torch.Tensor: un-normalized log-likelihood
     """
     return ntrain / output.shape[0] * (torch.numel(target) * log_beta - torch.exp(log_beta) * torch.sum(torch.abs((target - output))))
 
@@ -89,16 +99,27 @@ class Bayesian(nn.Module):
             raise ValueError(f"Noise type {noise} is not supported.")
 
     def set_trainer(self, trainer: VariationalInference) -> None:
+        """
+        Set the variational inference algorithm for training.
+        Args:
+            trainer (VariationalInference): variational inference algorithm
+        Returns:
+            None
+        """
         if not isinstance(trainer, VariationalInference):
             raise TypeError(f"Trainer {torch.typename(trainer)} must be a VariationalInference instance.")
         self.trainer = trainer
 
     @torch.no_grad
     def _reset_log_beta(self):
+        """
+        Sample a new value for the log precision of the noise.
+        """
         self.log_beta.copy_(torch.log(Gamma(self.beta_a, self.beta_b).sample((1,))))
 
     def He(self, linear=False, a=0.1, seed=None):
-        """He initialization.
+        """
+        He initialization (see DLROMs Layer class).
         """
         self.model.He(linear=linear, a=a, seed=seed) # calls the ROM 'He' method
         self._reset_log_beta()
@@ -111,56 +132,75 @@ class Bayesian(nn.Module):
         self._reset_log_beta()
 
     def hybrid(self, x1, x2):
-        """Hybrid initialization.
+        """
+        Hybrid initialization.
         """
         self.model.hybrid(x1, x2)
         self._reset_log_beta()
 
     def cuda(self):
-        """Move model to GPU.
+        """
+        Move model to GPU.
         """
         self.device = torch.device('cuda')
         self.model.cuda()
         self.log_beta = self.log_beta.to(self.device)
 
     def cpu(self):
-        """Move model to CPU.
+        """
+        Move model to CPU.
         """
         self.device = torch.device('cpu')
         self.model.cpu()
         self.log_beta = self.log_beta.to(self.device)
 
     def count_parameters(self):
-        """Count the number of parameters in the model.
+        """
+        Count the number of parameters in the model.
         """
         return sum(p.numel() for p in self.model.parameters()) + self.log_beta.numel()
 
     def _log_joint(self, target: torch.Tensor, output: torch.Tensor, ntrain: int) -> torch.Tensor:
-        """Compute the log joint.
+        """
+        Compute the log joint.
+        Args:
+            target (torch.Tensor): target values
+            output (torch.Tensor): predicted values
+            ntrain (int): number of training samples
+        Returns:
+            torch.Tensor: un-normalized log joint
         """
         log_likelihood = self.log_likelihood(target, output, self.log_beta, ntrain)
-        # log Gamma(beta| a, b)
-        log_prior_log_beta = (self.beta_a - 1.) * self.log_beta - torch.exp(self.log_beta) * self.beta_b
+        log_prior_log_beta = (self.beta_a - 1.) * self.log_beta - torch.exp(self.log_beta) * self.beta_b # log Gamma(beta|a, b)
         return torch.sum(log_likelihood + log_prior_log_beta) # return a scalar
 
     def _log_prior(self) -> torch.Tensor:
-        """Compute the log prior on the parameters (t-distribution).
+        """
+        Compute the log prior on the parameters.
+        Returns:
+            torch.Tensor: un-normalized log prior
         """
         log_prior_w = torch.tensor(0.0).to(self.device)
         for param in self.model.parameters():
             log_prior_w += torch.sum(torch.log1p(0.5 / self.alpha_b * param ** 2))
-            log_prior_w *= - (self.alpha_a + 0.5)
+            log_prior_w *= - (self.alpha_a + 0.5) # log Student-t
         return log_prior_w
 
     def _log_posterior(self, target: torch.Tensor, output: torch.Tensor, ntrain: int) -> torch.Tensor:
-        """Compute the un-normalized log posterior."""
+        """
+        Compute the un-normalized log posterior.
+        Args:
+            target (torch.Tensor): target values
+            output (torch.Tensor): predicted values
+            ntrain (int): number of training samples
+        Returns:
+            torch.Tensor: un-normalized log posterior
+        """
         log_joint = self._log_joint(target, output, ntrain)
         log_prior = self._log_prior()
         return log_joint + log_prior
 
     def forward(self, *args, **kwargs):
-        """Forward pass through the model (each pass gives a different stochastic output).
-        """
         if self.trainer is None:
             raise ValueError("A trainer must be set before calling the 'forward' method.")
         return self.trainer.forward(*args, **kwargs)

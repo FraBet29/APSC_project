@@ -8,7 +8,7 @@ from dlroms.minns import Local, Geodesic
 
 class Channel(Weightless):
     """
-    Selects a channel from the input tensor.
+    Layer to select a channel from a 3D input tensor of shape (batch_size, channels, Nh).
     """
     def __init__(self, ch):
         super().__init__()
@@ -20,14 +20,21 @@ class Channel(Weightless):
 
 class ExpandedSparse(Sparse):
     """
-    Sparse layer with new initialization methods.
+    Expansion of the Sparse layer in DLROMs with two new initialization methods:
+        deterministic: initializes the weights based on the distance between the mesh nodes;
+        hybrid: deterministic initialization with a random perturbation.
     """
-
     def __init__(self, *args, **kwargs):
         super(ExpandedSparse, self).__init__(*args, **kwargs)
 
     def deterministic(self, x1, x2):
-        """Initializes the weights of the layer in a deterministic way, based on the distance between the mesh nodes.
+        """
+        Initializes the weights of the layer in a deterministic way, based on the distance between the mesh nodes.
+        Args:
+            x1: coordinates of the first set of mesh nodes.
+            x2: coordinates of the second set of mesh nodes.
+        Returns:
+            None
         """
         coordinates1 = x1 if(isinstance(x1, numpy.ndarray)) else coordinates(x1)
         coordinates2 = x2 if(isinstance(x2, numpy.ndarray)) else coordinates(x2)
@@ -46,7 +53,13 @@ class ExpandedSparse(Sparse):
         self.weight = torch.nn.Parameter(self.core.tensor(W[self.loc]))
 
     def hybrid(self, x1, x2):
-        """Initializes the weights of the layer in a hybrid way, based on the distance between the mesh nodes and random values.
+        """
+        Initializes the weights of the layer using the deterministic method with a random perturbation.
+        Args:
+            x1: coordinates of the first set of mesh nodes.
+            x2: coordinates of the second set of mesh nodes.
+        Returns:
+            None
         """
         self.deterministic(x1, x2)
         nonzeros = len(self.loc[0]) # number of active weights
@@ -56,7 +69,7 @@ class ExpandedSparse(Sparse):
 
 class ExpandedLocal(Local, ExpandedSparse):
     """
-    Local layer with new initialization methods.
+    Expansion of the Local layer in DLROMs with new initialization methods.
     """
     def __init__(self, *args, **kwargs):
         super(ExpandedLocal, self).__init__(*args, **kwargs)
@@ -64,7 +77,7 @@ class ExpandedLocal(Local, ExpandedSparse):
 
 class ExpandedGeodesic(Geodesic, ExpandedSparse):
     """
-    Geodesic layer with new initialization methods.
+    Expansion of the Geodesic layer in DLROMs with new initialization methods.
     """
     def __init__(self, *args, **kwargs):
         super(ExpandedGeodesic, self).__init__(*args, **kwargs)

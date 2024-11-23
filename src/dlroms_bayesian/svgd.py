@@ -9,11 +9,20 @@ import math
 from copy import deepcopy
 from tqdm import tqdm
 
+from dlroms_bayesian.bayesian import Bayesian
 from dlroms_bayesian.bayesian import VariationalInference
 
 
-def parameters_to_vector(parameters: Iterator[nn.Parameter], grad: bool = True):
-    """Convert parameters (and their gradients) to a tensor."""
+def parameters_to_vector(parameters: Iterator[nn.Parameter], grad: bool = True) -> Union[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
+    """
+    Convert parameters (and their gradients) to a tensor.
+    Args:
+        parameters: iterator of parameters (as given by the 'parameters' method in PyTorch)
+        grad: whether to also convert gradients
+    Returns:
+        torch.Tensor: vector of parameters
+        torch.Tensor: vector of gradients (if grad=True)
+    """
     if grad:
         vec_params, vec_grads = [], []
         for param in parameters:
@@ -25,18 +34,26 @@ def parameters_to_vector(parameters: Iterator[nn.Parameter], grad: bool = True):
         return torch.cat(vec_params)
 
 
-def vector_to_parameters(vec: torch.Tensor, parameters: Iterator[nn.Parameter], grad: bool = True):
-    """Convert one vector to the parameters or gradients of the parameters."""
+def vector_to_parameters(vec: torch.Tensor, parameters: Iterator[nn.Parameter], grad: bool = True) -> None:
+    """
+    Convert a vector to parameters or gradients of the parameters.
+    Args:
+        vec: vector of parameters or gradients
+        parameters: iterator of parameters (as given by the 'parameters' method in PyTorch)
+        grad: whether to convert gradients
+    Returns:
+        None
+    """
     idx = 0
     if grad:
         for param in parameters:
             num_param = torch.prod(torch.LongTensor(list(param.size())))
-            param.grad.data = vec[idx:idx+num_param].view(param.size())
+            param.grad.data = vec[idx:idx+num_param].view(param.size()) # in-place operation
             idx += num_param
     else:
         for param in parameters:
             num_param = torch.prod(torch.LongTensor(list(param.size())))
-            param.data = vec[idx:idx+num_param].view(param.size())
+            param.data = vec[idx:idx+num_param].view(param.size()) # in-place operation
             idx += num_param
 
 
@@ -76,9 +93,9 @@ class RBF_kernel(Kernel):
 
 class SVGD(VariationalInference):
     """
-    Stein variational gradient descent.
+    Stein variational gradient descent (SVGD) algorithm.
     """
-    def __init__(self, bayes, n_samples=20, kernel='rbf'):
+    def __init__(self, bayes: Bayesian, n_samples: int = 20, kernel: str = 'rbf'):
         super(SVGD, self).__init__(bayes)
 
         self.n_samples = n_samples
@@ -103,26 +120,35 @@ class SVGD(VariationalInference):
     def __getitem__(self, idx):
         return self.models[idx]
 
-    def get_particles(self):
-        """Return the particles (models) of the ensemble as a dictionary."""
+    def get_particles(self) -> dict:
+        """
+        Return the particles (models) of the ensemble as a dictionary.
+        """
         particles = {}
         for idx, model in enumerate(self.models):
             particles[f"bayes.{idx}"] = model.state_dict()
         return particles
     
-    def load_particles(self, path):
-        """Load the particles (models) of the ensemble from a previous training."""
+    def load_particles(self, path: str) -> None:
+        """
+        Load the particles (models) of the ensemble from a checkpoint.
+        """
         particles = torch.load(path, weights_only=True, map_location=self.device)
         for idx, model in enumerate(self.models):
             model.load_state_dict(particles[f"bayes.{idx}"])
         self.update_bayes()
     
-    def save_particles(self, path):
-        """Save the particles (models) of the ensemble as a dictionary."""
+    def save_particles(self, path: str) -> None:
+        """
+        Save the particles (models) of the ensemble as a dictionary.
+        """
         particles = self.get_particles()
         torch.save(particles, path)
 
     def update_bayes(self) -> None:
+        """
+        Update the wrapped Bayesian model with the average of the ensemble.
+        """
         theta = []
         for i in range(self.n_samples):
             vec_param = parameters_to_vector(self.models[i].parameters(), grad=False)
@@ -132,14 +158,16 @@ class SVGD(VariationalInference):
         vector_to_parameters(theta_mean, self.bayes.parameters(), grad=False)
 
     def He(self, linear=False, a=0.1, seed=None):
-        """He initialization.
+        """
+        He initialization (see DLROMs Layer class).
         """
         self.bayes.He(linear=linear, a=a, seed=seed)
         for model in self.models:
             model.He(linear=linear, a=a, seed=seed)
 
     def hybrid(self, x1, x2):
-        """Hybrid initialization.
+        """
+        Hybrid initialization.
         """
         self.bayes.hybrid(x1, x2)
         for model in self.models:
@@ -147,7 +175,12 @@ class SVGD(VariationalInference):
 
     def forward(self, input: torch.Tensor, reduce: bool = True) -> torch.Tensor:
         """
-        Returns either the average output of the ensemble of models or the outputs of each model.
+        Compute a forward pass through the ensemble of models.
+        Args:
+            input: input tensor
+            reduce: whether to reduce the output to a single tensor
+        Returns:
+            torch.Tensor: output tensor (either the mean output or the ensemble of outputs)
         """
         outputs = [bayes.model.forward(input) for bayes in self.models] # calls the ROM 'forward()' method
         outputs = torch.stack(outputs)
@@ -155,22 +188,33 @@ class SVGD(VariationalInference):
 
     def __call__(self, input: torch.Tensor, reduce: bool = True) -> torch.Tensor:
         """
-        Calls the 'forward()' method.
+        Calls the 'forward' method.
         """
         return self.forward(input, reduce=reduce)
 
     def train(self, mu: Union[torch.Tensor, tuple[torch.Tensor, ...]], u: Union[torch.Tensor, tuple[torch.Tensor, ...]], 
               ntrain: int, epochs: int, optim: torch.optim.Optimizer = torch.optim.Adam, lr: float = 0.01, lr_noise: float = 0.01, 
-              loss = None, error = None, nvalid: int = 0, batchsize: int = None, adaptive: bool = False, track_history: bool = False) -> Optional[tuple]:
+              loss = None, error = None, nvalid: int = 0, adaptive: bool = False, track_history: bool = False) -> Optional[tuple]:
         """
         Train the ensemble of models using SVGD.
+        Args:
+            mu: input data
+            u: output data
+            ntrain: number of training samples
+            epochs: number of training epochs
+            optim: optimizer (default: Adam)
+            lr: learning rate (default: 0.01)
+            lr_noise: learning rate for the noise precision (default: 0.01)
+            loss: loss function
+            error: error function (if None, the loss function is used)
+            nvalid: number of validation samples (default: 0)
+            adaptive: whether to use a ReduceLROnPlateau scheduler (default: False)
+            track_history: whether to track the error, log posterior, and gradient of theta for monitoring (default: False)
+        Returns:
+            Optional[tuple]: history of the error, log posterior, and gradient of theta
         """
         if not (self is self.bayes.trainer): # avoid calling a trainer different from the one set in the Bayesian model
             raise RuntimeError("The trainer must be set in the Bayesian model before training.")
-
-        # TODO: support batch computation
-        if batchsize is not None:
-            raise NotImplementedError("Batch computation is not supported.")
 
         # Store n_samples instances of the optimizer
         # NOTE: LBFGS does not support per-parameter options and parameter groups
@@ -182,7 +226,7 @@ class SVGD(VariationalInference):
             optimizers.append(optimizer)
         
         if adaptive:
-            schedulers = [torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=10) for optimizer in optimizers]
+            schedulers = [torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.9, patience=10) for optimizer in optimizers]
 
         if track_history:
             err_history = []
