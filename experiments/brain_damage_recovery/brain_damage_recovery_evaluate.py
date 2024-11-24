@@ -15,9 +15,10 @@ if __name__ == '__main__':
 
 	parser = argparse.ArgumentParser(description="Evaluate trained models for brain damage recovery example.")
 
+	parser.add_argument('--init', type=str, choices=['he', 'det', 'hyb'], required=True, help="Initialization strategy (He or deterministic).")
 	parser.add_argument('--snapshot_dir', type=str, default='snapshots', help="Directory containing snapshots.")
 	parser.add_argument('--checkpoint_dir', type=str, default='checkpoints', help="Directory containing model checkpoints.")
-	parser.add_argument('--output_dir', type=str, default='plots', help="Output directory for results.")
+	parser.add_argument('--output_dir', type=str, default='results', help="Output directory for results.")
 	parser.add_argument('--save_all', action='store_true', help="Save all results.")
 
 	args = parser.parse_args()
@@ -63,7 +64,12 @@ if __name__ == '__main__':
 	layer_3 = Geodesic(domain, Vh_C, Vh_H, support=0.05, activation=None)
 
 	model = DFNN(layer_1, layer_2, layer_3)
-	model.load_state_dict(torch.load(os.path.join(args.checkpoint_dir, "model.pth"), weights_only=True, map_location=device))
+	if args.init == 'he':
+		model.load_state_dict(torch.load(os.path.join(args.checkpoint_dir, "model.pth"), weights_only=True, map_location=device))
+	elif args.init == 'det':
+		model.load_state_dict(torch.load(os.path.join(args.checkpoint_dir, "model_det.pth"), weights_only=True, map_location=device))
+	elif args.init == 'hyb':
+		model.load_state_dict(torch.load(os.path.join(args.checkpoint_dir, "model_hyb.pth"), weights_only=True, map_location=device))
 
 	if torch.cuda.is_available():
 		model.cuda()
@@ -91,7 +97,12 @@ if __name__ == '__main__':
 	plt.xlabel("Snapshot index")
 	plt.legend()
 	plt.tight_layout()
-	plt.savefig(os.path.join(args.output_dir, 'mean_recovery_time.png'))
+	if args.init == 'he':
+		plt.savefig(os.path.join(args.output_dir, 'mean_recovery_time_' + args.init + '.png'))
+	elif args.init == 'det':
+		plt.savefig(os.path.join(args.output_dir, 'mean_recovery_time_' + args.init + '_det.png'))
+	elif args.init == 'hyb':
+		plt.savefig(os.path.join(args.output_dir, 'mean_recovery_time_' + args.init + '_hyb.png'))
 	plt.close()
 
 	# Compute maximum time-to-recovery
@@ -106,7 +117,12 @@ if __name__ == '__main__':
 	plt.xlabel("Snapshot index")
 	plt.legend()
 	plt.tight_layout()
-	plt.savefig(os.path.join(args.output_dir, 'max_recovery_time.png'))
+	if args.init == 'he':
+		plt.savefig(os.path.join(args.output_dir, 'max_recovery_time_' + args.init + '.png'))
+	elif args.init == 'det':
+		plt.savefig(os.path.join(args.output_dir, 'max_recovery_time_' + args.init + '_det.png'))
+	elif args.init == 'hyb':
+		plt.savefig(os.path.join(args.output_dir, 'max_recovery_time_' + args.init + '_hyb.png'))
 	plt.close()
 
 	if args.save_all:
