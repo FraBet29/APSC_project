@@ -1,0 +1,23 @@
+experiments:
+
+  - name: "darcy_flow"
+    evaluate:
+      script: "experiments/darcy_flow/darcy_flow_evaluate.py"
+      parameters:
+        null
+    evaluate_bayesian:
+      script: "experiments/darcy_flow/darcy_flow_bayesian_evaluate.py"
+      parameters:
+        null
+
+  - name: "brain_damage_recovery"
+    evaluate:
+      script: "experiments/brain_damage_recovery/brain_damage_recovery_evaluate.py"
+      parameters:
+        init: 'he' # 'he', 'det', or 'hyb'
+    evaluate_bayesian:
+      script: "experiments/brain_damage_recovery/brain_damage_recovery_bayesian_evaluate.py"
+      parameters:
+        init: 'he' # 'he' or 'hyb'
+        n_samples: 70 # number of samples for the Bayesian model
+        alpha: 0.1 # confidence level
