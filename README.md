@@ -46,25 +46,31 @@ Each experiment folder has the following structure:
 
 ### Installation
 
-It is recommended to create a new conda environment to run the code. You can create a new environment with the following command (which automatically installs the ```pip``` package manager):
+It is recommended to create a new ```conda``` environment to run the code (refer to [this webpage](https://docs.anaconda.com/miniconda/install/) for Miniconda). You can create a new environment with the following command (which automatically installs the ```pip``` package manager):
 
 ```bash
 conda create -n dlroms-env python=3.12
 ```
 
-Then, activate the environment:
+To activate the environment, type:
 
 ```bash
 conda activate dlroms-env
 ```
 
-First, install the DLROMs package:
+Although FEniCS is listed as an optional dependency for DLROMs, it is needed to run the experiments. You can install it via:
+
+```bash
+conda install -c conda-forge fenics
+```
+
+Then, install the DLROMs package:
 
 ```bash
 pip install git+https://github.com/NicolaRFranco/dlroms.git
 ```
 
-Then, install the Bayesian extension:
+Finally, install the Bayesian extension (from the root folder):
 
 ```bash
 pip install .
