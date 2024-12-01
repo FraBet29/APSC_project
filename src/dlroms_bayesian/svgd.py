@@ -169,13 +169,13 @@ class SVGD(VariationalInference):
         for model in self.models:
             model.He(linear=linear, a=a, seed=seed)
 
-    def hybrid(self, x1, x2):
+    def hybrid(self):
         """
         Hybrid initialization.
         """
-        self.bayes.hybrid(x1, x2)
+        self.bayes.hybrid()
         for model in self.models:
-            model.hybrid(x1, x2)
+            model.hybrid()
 
     def forward(self, input: torch.Tensor, reduce: bool = True) -> torch.Tensor:
         """

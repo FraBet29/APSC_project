@@ -176,18 +176,20 @@ class Bayesian(nn.Module):
         self.model.He(linear=linear, a=a, seed=seed) # calls the ROM 'He' method
         self._reset_log_beta()
 
-    def deterministic(self, x1, x2):
+    def deterministic(self):
         """
         Deterministic initialization.
         """
-        self.model.deterministic(x1, x2)
+        for layer in self.model:
+            layer.deterministic()
         self._reset_log_beta()
 
-    def hybrid(self, x1, x2):
+    def hybrid(self):
         """
         Hybrid initialization.
         """
-        self.model.hybrid(x1, x2)
+        for layer in self.model:
+            layer.hybrid()
         self._reset_log_beta()
 
     def cuda(self):
