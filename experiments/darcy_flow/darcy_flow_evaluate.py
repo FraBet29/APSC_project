@@ -9,19 +9,10 @@ from dlroms.dnns import *
 import argparse
 import os
 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-if __name__ == '__main__':
 
-	parser = argparse.ArgumentParser(description="Evaluate trained models for Darcy flow example.")
-
-	parser.add_argument('--snapshot_dir', type=str, default='snapshots', help="Directory containing snapshots.")
-	parser.add_argument('--checkpoint_dir', type=str, default='checkpoints', help="Directory containing model checkpoints.")
-	parser.add_argument('--output_dir', type=str, default='results', help="Output directory for results.")
-	parser.add_argument('--save_all', action='store_true', help="Save all results.")
-
-	args = parser.parse_args()
-
-	device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+def evaluate(args):
 
 	# Domain, mesh, and function space definition
 
@@ -47,9 +38,7 @@ if __name__ == '__main__':
 
 	N_test_H = data_test_H['K'].shape[0]
 	K_test_H = torch.tensor(data_test_H['K'].astype(np.float32)).to(device)
-	p_test_H = torch.tensor(data_test_H['p'].astype(np.float32)).to(device)
-	u_x_test_H = torch.tensor(data_test_H['u_x'].astype(np.float32)).to(device)
-	u_y_test_H = torch.tensor(data_test_H['u_y'].astype(np.float32)).to(device)
+	out_test_H = torch.tensor(data_test_H[args.field].astype(np.float32)).to(device)
 
 	# Neural network cores
 
@@ -71,54 +60,21 @@ if __name__ == '__main__':
 	layer_in = Local(V_H, V_C, support=0.05, activation=None)
 	layer_out = Local(V_C, V_H, support=0.05, activation=None)
 
-	# Pressure model
+	# Model evaluation
 
-	p_model = DFNN(psi, psi_prime)
-	p_model_refined = DFNN(layer_in, p_model, layer_out)
-	p_model_refined.load_state_dict(torch.load(os.path.join(args.checkpoint_dir, "p_model_H.pth"), map_location=device, weights_only=True))
-
-	if torch.cuda.is_available():
-		p_model_refined.cuda()
-
-	with torch.no_grad():
-		p_pred_refined = p_model_refined(K_test_H)
-
-	# Velocity model
-
-	u_x_model = DFNN(psi, psi_prime)
-	u_x_model_refined = DFNN(layer_in, u_x_model, layer_out)
-	u_x_model_refined.load_state_dict(torch.load(os.path.join(args.checkpoint_dir, "u_x_model_H.pth"), map_location=device, weights_only=True))
+	model = DFNN(psi, psi_prime)
+	model_refined = DFNN(layer_in, model, layer_out)
+	model_refined.load_state_dict(torch.load(os.path.join(args.checkpoint_dir, args.field + "_model_H.pth"), map_location=device, weights_only=True))
 
 	if torch.cuda.is_available():
-		u_x_model_refined.cuda()
-	
-	with torch.no_grad():
-		u_x_pred_refined = u_x_model_refined(K_test_H)
-
-	u_y_model = DFNN(psi, psi_prime)
-	u_y_model_refined = DFNN(layer_in, u_y_model, layer_out)
-	u_y_model_refined.load_state_dict(torch.load(os.path.join(args.checkpoint_dir, "u_y_model_H.pth"), map_location=device, weights_only=True))
-
-	if torch.cuda.is_available():
-		u_y_model_refined.cuda()
+		model_refined.cuda()
 
 	with torch.no_grad():
-		u_y_pred_refined = u_y_model_refined(K_test_H)
+		pred_refined = model_refined(K_test_H)
 
-	u_test_H = torch.sqrt(u_x_test_H ** 2 + u_y_test_H ** 2)
-	u_pred_refined = torch.sqrt(u_x_pred_refined ** 2 + u_y_pred_refined ** 2)
+	error_refined = mre(l2_H)(out_test_H, pred_refined)
 
-	# Compute errors
-
-	p_error_refined = mre(l2_H)(p_test_H, p_pred_refined)
-	u_x_error_refined = mre(l2_H)(u_x_test_H, u_x_pred_refined)
-	u_y_error_refined = mre(l2_H)(u_y_test_H, u_y_pred_refined)
-	u_error_refined = mre(l2_H)(u_test_H, u_pred_refined)
-
-	print(f"Pressure error (high-res.): {100 * p_error_refined:.2f}%")
-	print(f"Velocity error, x-component (high-res.): {100 * u_x_error_refined:.2f}%")
-	print(f"Velocity error, y-component (high-res.): {100 * u_y_error_refined:.2f}%")
-	print(f"Velocity error, magnitude (high-res.): {100 * u_error_refined:.2f}%")
+	print(f"Test error (high-res.): {100 * error_refined:.2f}%")
 
 	# Save results
 
@@ -134,45 +90,32 @@ if __name__ == '__main__':
 			plt.figure(figsize=(12, 4))
 			plt.subplot(1, 3, 1)
 			fe.plot(K_test_H[idx], V_H, cmap='jet', colorbar=True)
-			plt.title("Permeability field")
-			vmin, vmax = torch.min(p_test_H[idx]), torch.max(p_test_H[idx])
+			plt.title("K")
+			vmin, vmax = torch.min(out_test_H[idx]), torch.max(out_test_H[idx])
 			plt.subplot(1, 3, 2)
-			fe.plot(p_test_H[idx], V_H, cmap='jet', vmin=vmin, vmax=vmax, colorbar=True)
-			plt.title("True pressure")
+			fe.plot(out_test_H[idx], V_H, cmap='jet', vmin=vmin, vmax=vmax, colorbar=True)
+			plt.title(f"True {args.field}")
 			plt.subplot(1, 3, 3)
-			fe.plot(p_pred_refined[idx], V_H, cmap='jet', vmin=vmin, vmax=vmax, colorbar=True)
-			plt.title("Predicted pressure")
+			fe.plot(pred_refined[idx], V_H, cmap='jet', vmin=vmin, vmax=vmax, colorbar=True)
+			plt.title(f"Predicted {args.field}")
 			plt.tight_layout()
-			plt.savefig(os.path.join(args.output_dir, f"p_{idx}.png"))
-
-			plt.figure(figsize=(12, 4))
-			plt.subplot(1, 3, 1)
-			fe.plot(K_test_H[idx], V_H, cmap='jet', colorbar=True)
-			plt.title("Permeability field")
-			vmin, vmax = torch.min(u_x_test_H[idx]), torch.max(u_x_test_H[idx])
-			plt.subplot(1, 3, 2)
-			fe.plot(u_x_test_H[idx], V_H, cmap='jet', vmin=vmin, vmax=vmax, colorbar=True)
-			plt.title("True velocity (x-comp.)")
-			plt.subplot(1, 3, 3)
-			fe.plot(u_x_pred_refined[idx], V_H, cmap='jet', vmin=vmin, vmax=vmax, colorbar=True)
-			plt.title("Predicted velocity (x-comp.)")
-			plt.tight_layout()
-			plt.savefig(os.path.join(args.output_dir, f"u_x_{idx}.png"))
-
-			plt.figure(figsize=(12, 4))
-			plt.subplot(1, 3, 1)
-			fe.plot(K_test_H[idx], V_H, cmap='jet', colorbar=True)
-			plt.title("Permeability field")
-			vmin, vmax = torch.min(u_y_test_H[idx]), torch.max(u_y_test_H[idx])
-			plt.subplot(1, 3, 2)
-			fe.plot(u_y_test_H[idx], V_H, cmap='jet', vmin=vmin, vmax=vmax, colorbar=True)
-			plt.title("True velocity (y-comp.)")
-			plt.subplot(1, 3, 3)
-			fe.plot(u_y_pred_refined[idx], V_H, cmap='jet', vmin=vmin, vmax=vmax, colorbar=True)
-			plt.title("Predicted velocity (y-comp.)")
-			plt.tight_layout()
-			plt.savefig(os.path.join(args.output_dir, f"u_y_{idx}.png"))
+			plt.savefig(os.path.join(args.output_dir, f"{args.field}_{idx}.png"))
 
 			plt.close('all')
 
 		print(f"Results saved in directory {args.output_dir}.")
+
+
+if __name__ == '__main__':
+
+	parser = argparse.ArgumentParser(description="Evaluate trained models for Darcy flow example.")
+
+	parser.add_argument('--field', type=str, choices=['p', 'u_x', 'u_y'], required=True, help="Output field.")
+	parser.add_argument('--snapshot_dir', type=str, default='snapshots', help="Directory containing snapshots.")
+	parser.add_argument('--checkpoint_dir', type=str, default='checkpoints', help="Directory containing model checkpoints.")
+	parser.add_argument('--output_dir', type=str, default='results', help="Output directory for results.")
+	parser.add_argument('--save_all', action='store_true', help="Save all results.")
+
+	args = parser.parse_args()
+
+	evaluate(args)
