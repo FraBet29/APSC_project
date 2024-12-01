@@ -1,6 +1,8 @@
 from __future__ import annotations
 from typing import *
 
+from abc import ABC, abstractmethod
+
 import torch
 import torch.nn as nn
 from torch.nn.parameter import Parameter
@@ -10,7 +12,7 @@ from dlroms_bayesian.utils import *
 from dlroms_bayesian.expansions import *
 from dlroms_bayesian.utils import *
 
-from abc import ABC, abstractmethod
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 class VariationalInference(ABC):
@@ -75,7 +77,7 @@ class VariationalInference(ABC):
             input (torch.Tensor): input data
             n_samples (int): number of samples
         Returns:
-            tuple[torch.Tensor, torch.Tensor]: mean and standard deviation of the samples
+            tuple[torch.Tensor, torch.Tensor]: mean and variance of the samples
         """
         pass
 
@@ -228,7 +230,7 @@ class Bayesian(nn.Module):
         Returns:
             torch.Tensor: un-normalized log prior
         """
-        log_prior_w = torch.tensor(0.0).to(torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
+        log_prior_w = torch.tensor(0.0).to(device)
         for param in self.model.parameters():
             log_prior_w += torch.sum(torch.log1p(0.5 / self._alpha_b * param ** 2))
         log_prior_w *= - (self._alpha_a + 0.5) # log Student-t

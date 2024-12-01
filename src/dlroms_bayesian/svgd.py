@@ -1,6 +1,8 @@
 from __future__ import annotations
 from typing import *
 
+from abc import ABC, abstractmethod
+
 import torch
 import torch.nn as nn
 
@@ -12,60 +14,64 @@ from tqdm import tqdm
 from dlroms_bayesian.bayesian import Bayesian
 from dlroms_bayesian.bayesian import VariationalInference
 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-def parameters_to_vector(parameters: Iterator[nn.Parameter], grad: bool = True) -> Union[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
+
+def parameters_to_vector(params: Iterator[nn.Parameter], grad: bool = True) -> Union[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
     """
     Convert parameters (and their gradients) to a tensor.
     Args:
-        parameters: iterator of parameters (as given by the 'parameters' method in PyTorch)
-        grad: whether to also convert gradients
+        params (Iterator[nn.Parameter]): iterator of parameters (as given by the 'parameters' method in PyTorch)
+        grad (bool): whether to also convert gradients
     Returns:
         torch.Tensor: vector of parameters
         torch.Tensor: vector of gradients (if grad=True)
     """
     if grad:
         vec_params, vec_grads = [], []
-        for param in parameters:
+        for param in params:
             vec_params.append(param.data.view(-1))
             vec_grads.append(param.grad.data.view(-1))
         return torch.cat(vec_params), torch.cat(vec_grads)
     else:
-        vec_params = [param.data.view(-1) for param in parameters]
+        vec_params = [param.data.view(-1) for param in params]
         return torch.cat(vec_params)
 
 
-def vector_to_parameters(vec: torch.Tensor, parameters: Iterator[nn.Parameter], grad: bool = True) -> None:
+def vector_to_parameters(vec: torch.Tensor, params: Iterator[nn.Parameter], grad: bool = True) -> None:
     """
-    Convert a vector to parameters or gradients of the parameters.
+    Convert a tensor to parameters or gradients of the parameters.
     Args:
-        vec: vector of parameters or gradients
-        parameters: iterator of parameters (as given by the 'parameters' method in PyTorch)
-        grad: whether to convert gradients
+        vec (torch.Tensor): vector of parameters or gradients
+        params (Iterator[nn.Parameter]): iterator of parameters (as given by the 'parameters' method in PyTorch)
+        grad (bool): whether to convert gradients
     Returns:
         None
     """
     idx = 0
-    if grad:
-        for param in parameters:
-            num_param = torch.prod(torch.LongTensor(list(param.size())))
-            param.grad.data = vec[idx:idx+num_param].view(param.size()) # in-place operation
-            idx += num_param
-    else:
-        for param in parameters:
-            num_param = torch.prod(torch.LongTensor(list(param.size())))
-            param.data = vec[idx:idx+num_param].view(param.size()) # in-place operation
-            idx += num_param
+    for param in params:
+        n_param = torch.prod(torch.LongTensor(list(param.size())))
+        if grad:
+            param.grad.data = vec[idx:idx+n_param].view(param.size())
+        else:
+            param.data = vec[idx:idx+n_param].view(param.size())
+        idx += n_param
 
 
-class Kernel(object):
+class Kernel(ABC):
     """
     Abstract class for kernels.
     """
-    def __init__(self):
+    @abstractmethod
+    def __call__(self, X: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Compute the kernel and its gradient.
+        Args:
+            X (torch.Tensor): input tensor
+        Returns:
+            tuple[torch.Tensor, torch.Tensor]: kernel and its gradient
+        """
         pass
-
-    def __call__(self):
-        raise NotImplementedError("The '__call__' method must be implemented in a derived class.")
 
 
 class RBFKernel(Kernel):
@@ -73,6 +79,11 @@ class RBFKernel(Kernel):
     Radial basis function kernel.
     """
     def __init__(self, h=-1):
+        """
+        Initialize the RBF kernel.
+        Args:
+            h (float): bandwidth (default: -1)
+        """
         super(RBFKernel, self).__init__()
         self.h = h
 
@@ -96,11 +107,16 @@ class SVGD(VariationalInference):
     Stein variational gradient descent (SVGD) algorithm.
     """
     def __init__(self, bayes: Bayesian, n_samples: int = 20, kernel: str = 'rbf'):
+        """
+        Initialize the SVGD algorithm.
+        Args:
+            bayes (Bayesian): Bayesian model
+            n_samples (int): number of samples (default: 20)
+            kernel (str): kernel type (default: 'rbf')
+        """
         super(SVGD, self).__init__(bayes)
 
         self.n_samples = n_samples
-
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
         if kernel == 'rbf':
             self.kernel = RBFKernel()
@@ -111,11 +127,8 @@ class SVGD(VariationalInference):
         models = []
         for _ in range(n_samples):
             model = deepcopy(bayes)
-            # if torch.cuda.is_available():
-            #     model.cuda()
             models.append(model)
         self.models = models # list of Bayesian models
-        del models
 
     def __getitem__(self, idx):
         return self.models[idx]
@@ -123,6 +136,10 @@ class SVGD(VariationalInference):
     def get_particles(self) -> dict:
         """
         Return the particles (models) of the ensemble as a dictionary.
+        Args:
+            None
+        Returns:
+            dict: particles
         """
         particles = {}
         for idx, model in enumerate(self.models):
@@ -132,8 +149,12 @@ class SVGD(VariationalInference):
     def load_particles(self, path: str) -> None:
         """
         Load the particles (models) of the ensemble from a checkpoint.
+        Args:
+            path (str): path to the checkpoint
+        Returns:
+            None
         """
-        particles = torch.load(path, weights_only=True, map_location=self.device)
+        particles = torch.load(path, weights_only=True, map_location=device)
         for idx, model in enumerate(self.models):
             model.load_state_dict(particles[f"bayes.{idx}"])
         self.update()
@@ -141,6 +162,10 @@ class SVGD(VariationalInference):
     def save_particles(self, path: str) -> None:
         """
         Save the particles (models) of the ensemble as a dictionary.
+        Args:
+            path (str): path to the checkpoint
+        Returns:
+            None
         """
         particles = self.get_particles()
         torch.save(particles, path)
@@ -180,8 +205,8 @@ class SVGD(VariationalInference):
         """
         Compute a forward pass through the ensemble of models.
         Args:
-            input: input tensor
-            reduce: whether to reduce the output to a single tensor
+            input (torch.Tensor): input data
+            reduce (bool): whether to return the mean of the ensemble or the full output (default: True)
         Returns:
             torch.Tensor: output tensor (either the mean output or the ensemble of outputs)
         """
@@ -196,20 +221,20 @@ class SVGD(VariationalInference):
         return self.forward(input, reduce=reduce)
 
     def train(self, mu: Union[torch.Tensor, tuple[torch.Tensor, ...]], u: Union[torch.Tensor, tuple[torch.Tensor, ...]], 
-              ntrain: int, epochs: int, optim: torch.optim.Optimizer = torch.optim.Adam, lr: float = 0.01, lr_noise: float = 0.01, 
-              loss: Callable = None, error: Optional[Callable] = None, nvalid: int = 0, adaptive: bool = False, track_history: bool = False) -> Optional[tuple]:
+              ntrain: int, epochs: int, loss: Callable, optim: torch.optim.Optimizer = torch.optim.Adam, lr: float = 0.01, lr_noise: float = 0.01, 
+              error: Optional[Callable] = None, nvalid: int = 0, adaptive: bool = False, track_history: bool = False) -> Optional[tuple]:
         """
         Train the ensemble of models using SVGD.
         Args:
-            mu: input data
-            u: output data
-            ntrain: number of training samples
-            epochs: number of training epochs
-            optim: optimizer (default: Adam)
-            lr: learning rate (default: 0.01)
-            lr_noise: learning rate for the noise precision (default: 0.01)
-            loss: loss function
-            error: error function (if None, the loss function is used)
+            mu (torch.Tensor or tuple[torch.Tensor, ...]): input data
+            u (torch.Tensor or tuple[torch.Tensor, ...]): output data
+            ntrain (int): number of training samples
+            epochs (int): number of training epochs
+            loss (Callable): loss function
+            optim (torch.optim.Optimizer): optimizer (default: Adam)
+            lr (float): learning rate (default: 0.01)
+            lr_noise (float): learning rate for the noise (default: 0.01)
+            error (Optional[Callable]): error function (default: None, in which case the loss function is used)
             nvalid: number of validation samples (default: 0)
             adaptive: whether to use a ReduceLROnPlateau scheduler (default: False)
             track_history: whether to track the error, log posterior, and gradient of theta for monitoring (default: False)
@@ -229,7 +254,7 @@ class SVGD(VariationalInference):
             optimizers.append(optimizer)
         
         if adaptive:
-            schedulers = [torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.9, patience=10) for optimizer in optimizers]
+            schedulers = [torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.9, patience=10, min_lr=1e-6) for optimizer in optimizers]
 
         if track_history:
             err_history = []
@@ -268,7 +293,7 @@ class SVGD(VariationalInference):
                     log_posterior_i = self.models[i]._log_posterior(Upred_i, getout(Utrain), ntrain) # compute log posterior
                     log_posterior += log_posterior_i
                     
-                log_posterior.backward() # compute gradients of log posterior
+                log_posterior.backward() # compute gradients of log posterior (in one backward pass)
 
                 theta = [] # model parameters (particles)
                 grad_log_posterior = [] # gradients of log posterior
@@ -314,8 +339,8 @@ class SVGD(VariationalInference):
         """
         Sample from the ensemble of models.
         Args:
-            input: input tensor
-            n_samples: number of samples
+            input (torch.Tensor): input tensor
+            n_samples (int): number of samples
         Returns:
             tuple[torch.Tensor, torch.Tensor]: mean and variance of the samples
         """
@@ -328,10 +353,10 @@ class SVGD(VariationalInference):
         outputs = self(input, reduce=False)
         outputs = outputs[:n_samples]
 
-        output_mean = torch.mean(outputs, dim=0) # E[y + n] = E[y] since the additive noise has zero mean
-        output_var = torch.var(outputs, dim=0)
+        output_mean = torch.mean(outputs, dim=0) # E[y+n] = E[y] since the n has zero mean
+        output_var = torch.var(outputs, dim=0) # Var[y+n] = Var[y] + Var[n] since y and n are independent
 
-        betas_inv = torch.tensor([torch.exp(-model.log_beta).item() for model in self.models[:n_samples]]).to(self.device)
+        betas_inv = torch.tensor([torch.exp(-model.log_beta).item() for model in self.models[:n_samples]]).to(device)
         noise_var = torch.mean(betas_inv)
 
         return output_mean, output_var + noise_var
