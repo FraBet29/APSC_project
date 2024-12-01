@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Union, Iterator, Optional
+from typing import *
 
 import torch
 import torch.nn as nn
@@ -68,12 +68,12 @@ class Kernel(object):
         raise NotImplementedError("The '__call__' method must be implemented in a derived class.")
 
 
-class RBF_kernel(Kernel):
+class RBFKernel(Kernel):
     """
     Radial basis function kernel.
     """
     def __init__(self, h=-1):
-        super(RBF_kernel, self).__init__()
+        super(RBFKernel, self).__init__()
         self.h = h
 
     def __call__(self, X):
@@ -103,7 +103,7 @@ class SVGD(VariationalInference):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
         if kernel == 'rbf':
-            self.kernel = RBF_kernel()
+            self.kernel = RBFKernel()
         else:
             raise ValueError(f"Kernel type {kernel} is not supported.")
 
@@ -136,7 +136,7 @@ class SVGD(VariationalInference):
         particles = torch.load(path, weights_only=True, map_location=self.device)
         for idx, model in enumerate(self.models):
             model.load_state_dict(particles[f"bayes.{idx}"])
-        self.update_bayes()
+        self.update()
     
     def save_particles(self, path: str) -> None:
         """
@@ -145,10 +145,13 @@ class SVGD(VariationalInference):
         particles = self.get_particles()
         torch.save(particles, path)
 
-    def update_bayes(self) -> None:
+    def update(self) -> None:
         """
-        Update the wrapped Bayesian model with the average of the ensemble.
+        Update the Bayesian model with the average of the ensemble.
         """
+        if not (self is self.bayes.trainer): # avoid calling a trainer different from the one set in the Bayesian model
+            raise RuntimeError("The trainer must be set in the Bayesian model before updating the model.")
+
         theta = []
         for i in range(self.n_samples):
             vec_param = parameters_to_vector(self.models[i].parameters(), grad=False)
@@ -182,7 +185,7 @@ class SVGD(VariationalInference):
         Returns:
             torch.Tensor: output tensor (either the mean output or the ensemble of outputs)
         """
-        outputs = [bayes.model.forward(input) for bayes in self.models] # calls the ROM 'forward()' method
+        outputs = [bayes.model.forward(input) for bayes in self.models] # calls the ROM 'forward' method
         outputs = torch.stack(outputs)
         return torch.mean(outputs, dim=0) if reduce else outputs
 
@@ -194,7 +197,7 @@ class SVGD(VariationalInference):
 
     def train(self, mu: Union[torch.Tensor, tuple[torch.Tensor, ...]], u: Union[torch.Tensor, tuple[torch.Tensor, ...]], 
               ntrain: int, epochs: int, optim: torch.optim.Optimizer = torch.optim.Adam, lr: float = 0.01, lr_noise: float = 0.01, 
-              loss = None, error = None, nvalid: int = 0, adaptive: bool = False, track_history: bool = False) -> Optional[tuple]:
+              loss: Callable = None, error: Optional[Callable] = None, nvalid: int = 0, adaptive: bool = False, track_history: bool = False) -> Optional[tuple]:
         """
         Train the ensemble of models using SVGD.
         Args:
@@ -261,7 +264,7 @@ class SVGD(VariationalInference):
                 log_posterior = 0.
 
                 for i in range(self.n_samples):
-                    Upred_i = self.models[i].model.forward(*(Mtrain)) # call the ROM 'forward()' method
+                    Upred_i = self.models[i].model.forward(*(Mtrain)) # call the ROM 'forward' method
                     log_posterior_i = self.models[i]._log_posterior(Upred_i, getout(Utrain), ntrain) # compute log posterior
                     log_posterior += log_posterior_i
                     
@@ -301,7 +304,7 @@ class SVGD(VariationalInference):
                 pbar.update()
 
         # Update the Bayesian model
-        self.update_bayes()
+        self.update()
 
         if track_history:
             return err_history, log_posterior_history, grad_theta_history
@@ -316,6 +319,9 @@ class SVGD(VariationalInference):
         Returns:
             tuple[torch.Tensor, torch.Tensor]: mean and variance of the samples
         """
+        if not (self is self.bayes.trainer): # avoid calling a trainer different from the one set in the Bayesian model
+            raise RuntimeError("The trainer must be set in the Bayesian model before sampling.")
+
         if n_samples > self.n_samples:
             raise ValueError(f"The number of samples ({n_samples}) exceeds the number of instances ({self.n_samples}).")
 
