@@ -1,8 +1,6 @@
 from __future__ import annotations
 from typing import *
 
-from abc import ABC, abstractmethod
-
 import torch
 import torch.nn as nn
 
@@ -58,48 +56,26 @@ def vector_to_parameters(vec: torch.Tensor, params: Iterator[nn.Parameter], grad
         idx += n_param
 
 
-class Kernel(ABC):
-    """
-    Abstract class for kernels.
-    """
-    @abstractmethod
-    def __call__(self, X: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """
-        Compute the kernel and its gradient.
-        Args:
-            X (torch.Tensor): input tensor
-        Returns:
-            tuple[torch.Tensor, torch.Tensor]: kernel and its gradient
-        """
-        pass
-
-
-class RBFKernel(Kernel):
+def rbf_kernel(X: torch.Tensor, h: float = -1.) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Radial basis function kernel.
+    Args:
+        X (torch.Tensor): input
+        h (float): bandwidth (default: -1)
+    Returns:
+        tuple[torch.Tensor, torch.Tensor]: the kernel and its gradient
     """
-    def __init__(self, h=-1):
-        """
-        Initialize the RBF kernel.
-        Args:
-            h (float): bandwidth (default: -1)
-        """
-        super(RBFKernel, self).__init__()
-        self.h = h
+    X_norm_squared = torch.sum(X ** 2, dim=1, keepdim=True)
+    pairwise_dists_squared = X_norm_squared + X_norm_squared.T - 2 * torch.mm(X, X.T)
 
-    def __call__(self, X):
-        
-        X_norm_squared = torch.sum(X ** 2, dim=1, keepdim=True)
-        pairwise_dists_squared = X_norm_squared + X_norm_squared.T - 2 * torch.mm(X, X.T)
+    if h < 0: # if h < 0, use median trick
+        h = torch.median(pairwise_dists_squared)
+        h = math.sqrt(0.5 * h / math.log(X.shape[0]))
 
-        if self.h < 0: # if h < 0, use median trick
-            self.h = torch.median(pairwise_dists_squared)
-            self.h = math.sqrt(0.5 * self.h / math.log(X.shape[0]))
+    Kxx = torch.exp(-0.5 * pairwise_dists_squared / h ** 2)
+    dxKxx = (torch.diag(torch.sum(Kxx, 1)) - Kxx) @ X / (h ** 2)
 
-        Kxx = torch.exp(-0.5 * pairwise_dists_squared / self.h ** 2)
-        dxKxx = (torch.diag(torch.sum(Kxx, 1)) - Kxx) @ X / (self.h ** 2)
-
-        return Kxx, dxKxx
+    return Kxx, dxKxx
 
 
 class SVGD(VariationalInference):
@@ -119,7 +95,7 @@ class SVGD(VariationalInference):
         self.n_samples = n_samples
         
         if kernel == 'rbf':
-            self.kernel = RBFKernel()
+            self.kernel = rbf_kernel
         else:
             raise ValueError(f"Kernel type {kernel} is not supported.")
 

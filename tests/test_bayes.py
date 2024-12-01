@@ -3,18 +3,13 @@ import unittest
 
 class TestVariationalInference(unittest.TestCase):
 	
-	def test_abstract_raise_notimplemented(self):
+	def test_abstract_raise_typeerror(self):
 		from dlroms.roms import DFNN
 		from dlroms_bayesian.bayesian import Bayesian, VariationalInference
-		import torch
 
 		model = DFNN()
 		bayes = Bayesian(model)
-		vi = VariationalInference(bayes)
-		self.assertRaises(NotImplementedError, vi.update_bayes)
-		self.assertRaises(NotImplementedError, vi.forward, torch.tensor([1.0]))
-		self.assertRaises(NotImplementedError, vi.train, torch.tensor([1.0]), torch.tensor([1.0]), 1, 1, None, 1.0, 1.0)
-		self.assertRaises(NotImplementedError, vi.sample, torch.tensor([1.0]), 1)
+		self.assertRaises(TypeError, VariationalInference, bayes)
 
 
 class TestLogLikelihood(unittest.TestCase):

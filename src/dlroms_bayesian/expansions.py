@@ -31,8 +31,8 @@ class ExpandedSparse(Sparse):
         """
         Initializes the weights of the layer in a deterministic way, based on the distance between the mesh nodes.
         Args:
-            x1: coordinates of the first set of mesh nodes.
-            x2: coordinates of the second set of mesh nodes.
+            x1: either a dlroms.fespaces.space object or a numpy array with the coordinates of the first set of mesh nodes
+            x2: either a dlroms.fespaces.space object or a numpy array with the coordinates of the second set of mesh nodes
         Returns:
             None
         """
