@@ -197,14 +197,14 @@ class Bayesian(nn.Module):
         Move model to GPU.
         """
         self.model.cuda()
-        self.log_beta = self.log_beta.to(torch.device('cuda'))
+        self.log_beta.data = self.log_beta.to(device)
 
     def cpu(self):
         """
         Move model to CPU.
         """
         self.model.cpu()
-        self.log_beta = self.log_beta.to(torch.device('cpu'))
+        self.log_beta.data = self.log_beta.to(device)
 
     def count_parameters(self):
         """
