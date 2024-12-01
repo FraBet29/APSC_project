@@ -19,29 +19,16 @@ class Channel(Weightless):
         return x[:, self.ch]
 
 
-class ExpandedLocal(Sparse):
+class ExpandedSparse(Sparse):
     """
-    Expansion of the Local layer in DLROMs with new initialization methods.
+    Expansion of the Sparse layer in DLROMs with new initialization methods.
     """
-    def __init__(self, x1, x2, support, activation = dnns.leakyReLU):
+    def __init__(self, dists, mask, activation = dnns.leakyReLU):
         """
-        Layer initialization (see DLROMs Local).
+        Layer initialization (see DLROMs Sparse).
         """
-        from dlroms.fespaces import coordinates
-        coordinates1 = x1 if(isinstance(x1, np.ndarray)) else coordinates(x1)
-        coordinates2 = x2 if(isinstance(x2, np.ndarray)) else coordinates(x2)
-        
-        M = 0
-        dim = len(coordinates1[0])
-        for j in range(dim):
-            dj = coordinates1[:, j].reshape(-1, 1) - coordinates2[:, j].reshape(1, -1)
-            M = M + dj ** 2
-        M = np.sqrt(M) # Euclidean distance matrix
-        mask = M < support
-        
-        super(ExpandedLocal, self).__init__(mask, activation)
-
-        self.dists = M[self.loc[0], self.loc[1]] # store distance matrix for active weights
+        super(ExpandedSparse, self).__init__(mask, activation)
+        self.dists = dists # store distance for active weights
 
     def deterministic(self):
         """
@@ -62,7 +49,31 @@ class ExpandedLocal(Sparse):
         self.weight = torch.nn.Parameter(eta * self.weight)
 
 
-class ExpandedGeodesic(Sparse):
+class ExpandedLocal(ExpandedSparse):
+    """
+    Expansion of the Local layer in DLROMs with new initialization methods.
+    """
+    def __init__(self, x1, x2, support, activation = dnns.leakyReLU):
+        """
+        Layer initialization (see DLROMs Local).
+        """
+        from dlroms.fespaces import coordinates
+        coordinates1 = x1 if(isinstance(x1, np.ndarray)) else coordinates(x1)
+        coordinates2 = x2 if(isinstance(x2, np.ndarray)) else coordinates(x2)
+        
+        M = 0
+        dim = len(coordinates1[0])
+        for j in range(dim):
+            dj = coordinates1[:, j].reshape(-1, 1) - coordinates2[:, j].reshape(1, -1)
+            M = M + dj ** 2
+        M = np.sqrt(M) # Euclidean distance matrix
+        mask = M < support
+        dists = M[mask]
+
+        super(ExpandedLocal, self).__init__(dists, mask, activation)
+
+
+class ExpandedGeodesic(ExpandedSparse):
     """
     Expansion of the Geodesic layer in DLROMs with new initialization methods.
     """
@@ -82,25 +93,6 @@ class ExpandedGeodesic(Sparse):
         E2 = navigator.finde(coordinates2).reshape(1,-1)
         M = navigator.D[E1, E2] # geodesic distance matrix
         mask = M < support
-        
-        super(ExpandedGeodesic, self).__init__(mask, activation)
+        dists = M[mask]
 
-        self.dists = M[self.loc[0], self.loc[1]] # store distance matrix for active weights
-
-    def deterministic(self):
-        """
-        Initializes the weights of the layer in a deterministic way, based on the distance matrix.
-        """
-        W = self.core.zeros(self.in_d, self.out_d)
-        W[self.loc[0], self.loc[1]] = self.core.tensor(np.exp(-self.dists)) # w = exp{-d}
-        W = W / torch.sum(W, dim=0) # normalize
-        self.weight = torch.nn.Parameter(self.core.tensor(W[self.loc]))
-
-    def hybrid(self):
-        """
-        Initializes the weights of the layer using the deterministic method with a random perturbation.
-        """
-        self.deterministic()
-        nonzeros = len(self.loc[0]) # number of active weights
-        eta = self.core.tensor(np.random.randn(nonzeros))
-        self.weight = torch.nn.Parameter(eta * self.weight)
+        super(ExpandedGeodesic, self).__init__(dists, mask, activation)
