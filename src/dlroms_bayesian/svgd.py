@@ -198,7 +198,7 @@ class SVGD(VariationalInference):
 
     def train(self, mu: Union[torch.Tensor, tuple[torch.Tensor, ...]], u: Union[torch.Tensor, tuple[torch.Tensor, ...]], 
               ntrain: int, epochs: int, loss: Callable, optim: torch.optim.Optimizer = torch.optim.Adam, lr: float = 0.01, lr_noise: float = 0.01, 
-              error: Optional[Callable] = None, nvalid: int = 0, adaptive: bool = False, track_history: bool = False) -> Optional[tuple]:
+              error: Optional[Callable] = None, nvalid: int = 0, adaptive: bool = False, track_history: bool = False) -> Optional[dict]:
         """
         Train the ensemble of models using SVGD.
         Args:
@@ -211,11 +211,11 @@ class SVGD(VariationalInference):
             lr (float): learning rate (default: 0.01)
             lr_noise (float): learning rate for the noise (default: 0.01)
             error (Optional[Callable]): error function (default: None, in which case the loss function is used)
-            nvalid: number of validation samples (default: 0)
-            adaptive: whether to use a ReduceLROnPlateau scheduler (default: False)
-            track_history: whether to track the error, log posterior, and gradient of theta for monitoring (default: False)
+            nvalid (int): number of validation samples (default: 0)
+            adaptive (bool): whether to use a ReduceLROnPlateau scheduler (default: False)
+            track_history (bool): whether to track the training history (default: False)
         Returns:
-            Optional[tuple]: history of the error, log posterior, and gradient of theta
+            Optional[dict]: training history (if track_history = True)
         """
         if not (self is self.bayes.trainer): # avoid calling a trainer different from the one set in the Bayesian model
             raise RuntimeError("The trainer must be set in the Bayesian model before training.")
@@ -233,9 +233,11 @@ class SVGD(VariationalInference):
             schedulers = [torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.9, patience=10, min_lr=1e-6) for optimizer in optimizers]
 
         if track_history:
-            err_history = []
-            log_posterior_history = []
-            grad_theta_history = []
+            history = {
+                'err': [],
+                'log_posterior': [],
+                'grad_theta': []
+            }
 
         M = (mu,) if(isinstance(mu, torch.Tensor)) else (mu if (isinstance(mu, tuple)) else None) # NOTE: same as ROM
         U = (u,) if(isinstance(u, torch.Tensor)) else (u if (isinstance(u, tuple)) else None)
@@ -297,9 +299,9 @@ class SVGD(VariationalInference):
                         scheduler.step(metric) # update learning rate
 
                 if track_history:
-                    err_history.append(err)
-                    log_posterior_history.append(log_posterior.item())
-                    grad_theta_history.append(torch.linalg.norm(grad_theta).item())
+                    history['err'].append(err)
+                    history['log_posterior'].append(log_posterior.item())
+                    history['grad_theta'].append(torch.linalg.norm(grad_theta).item())
 
                 pbar.set_description(f"Epoch: {epoch + 1}/{epochs}, train: {err[0]:.3e}, valid: {err[1]:.3e}, test: {err[2]:.3e}")
                 pbar.update()
@@ -308,7 +310,7 @@ class SVGD(VariationalInference):
         self.update()
 
         if track_history:
-            return err_history, log_posterior_history, grad_theta_history
+            return history
 
     @torch.no_grad()
     def sample(self, input: torch.Tensor, n_samples: int) -> tuple[torch.Tensor, torch.Tensor]:

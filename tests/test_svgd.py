@@ -32,10 +32,13 @@ class TestVectorToParameters(unittest.TestCase):
 class TestRBFKernel(unittest.TestCase):
 
 	def test_rbf_kernel(self):
-		from dlroms_bayesian.svgd import RBFKernel
+		from dlroms_bayesian.svgd import rbf_kernel
 		import torch
 
-		# TODO
+		X = torch.tensor([[1.], [0.]])
+		Kxx, _ = rbf_kernel(X, 1.)
+		self.assertTrue(Kxx.shape == (2, 2))
+		self.assertTrue(torch.allclose(Kxx, torch.exp(torch.tensor([[0., -0.5], [-0.5, 0.]]))))
 
 
 class TestSVGD(unittest.TestCase):
@@ -89,7 +92,7 @@ class TestSVGD(unittest.TestCase):
 		svgd2 = SVGD(bayes, n_samples=3)
 		bayes.set_trainer(svgd1)
 		x, y = torch.zeros(10, 2), torch.zeros(10, 1)
-		self.assertRaises(RuntimeError, svgd2.train, x, y, 10, 1)
+		self.assertRaises(RuntimeError, svgd2.train, x, y, 10, 1, None)
 
 
 if __name__ == '__main__':
