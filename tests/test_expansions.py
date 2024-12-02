@@ -26,7 +26,7 @@ class TestDeterministic(unittest.TestCase):
 		space1 = space(mesh1, 'CG', 1)
 		space2 = space(mesh2, 'CG', 1)
 		layer = ExpandedLocal(space1, space2, support=0.7)
-		layer.deterministic(space1, space2)
+		layer.deterministic()
 		self.assertTrue(layer.W().shape == (4, 9))
 		# The top-left node in mesh2 has one neighbor in mesh1 (top-left), with distance 0
 		self.assertAlmostEqual(layer.W()[0, 0].item(), 1.0)
