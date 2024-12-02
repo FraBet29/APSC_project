@@ -46,14 +46,14 @@ def train(args):
     K_test_C = torch.tensor(data_test_C['K'].astype(np.float32)).to(device)
     out_test_C = torch.tensor(data_test_C[args.field].astype(np.float32)).to(device)
 
-    path_train_H = os.path.join(os.getcwd(), "snapshots", "snapshots_train_H.npz")
+    path_train_H = os.path.join(os.getcwd(), args.snapshot_dir, "snapshots_train_H.npz")
     data_train_H = np.load(path_train_H)
 
     N_train_H = data_train_H['K'].shape[0]
     K_train_H = torch.tensor(data_train_H['K'].astype(np.float32)).to(device)
     out_train_H = torch.tensor(data_train_H[args.field].astype(np.float32)).to(device)
 
-    path_test_H = os.path.join(os.getcwd(), "snapshots", "snapshots_test_H.npz")
+    path_test_H = os.path.join(os.getcwd(), args.snapshot_dir, "snapshots_test_H.npz")
     data_test_H = np.load(path_test_H)
 
     N_test_H = data_test_H['K'].shape[0]

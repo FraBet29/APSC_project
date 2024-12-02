@@ -29,14 +29,14 @@ def train(args):
 
     # Load train and test data
 
-    path_train = os.path.join(os.getcwd(), "snapshots", "snapshots_train_C.npz")
+    path_train = os.path.join(os.getcwd(), args.snapshot_dir, "snapshots_train_C.npz")
     data_train = np.load(path_train)
 
     N_train = data_train['K'].shape[0]
     K_train = torch.tensor(data_train['K'].astype(np.float32)).to(device)
     out_train = torch.tensor(data_train[args.field].astype(np.float32)).to(device)
 
-    path_test = os.path.join(os.getcwd(), "snapshots", "snapshots_test_C.npz")
+    path_test = os.path.join(os.getcwd(), args.snapshot_dir, "snapshots_test_C.npz")
     data_test = np.load(path_test)
 
     N_test = data_test['K'].shape[0]
