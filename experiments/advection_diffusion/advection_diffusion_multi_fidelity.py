@@ -135,10 +135,13 @@ def train(args):
 
 	# Save encoder, decoder, dense NN, and mesh-informed layer
 
-	torch.save(psi_prime.state_dict(), os.path.join('checkpoints', 'psi_prime_' + str(args.num_snapshots_low) + '_' + str(args.num_snapshots_high) + '.pth'))
-	torch.save(psi.state_dict(), os.path.join('checkpoints', 'psi_' + str(args.num_snapshots_low) + '_' + str(args.num_snapshots_high) + '.pth'))
-	torch.save(phi.state_dict(), os.path.join('checkpoints', 'phi_' + str(args.num_snapshots_low) + '_' + str(args.num_snapshots_high) + '.pth'))
-	torch.save(chi.state_dict(), os.path.join('checkpoints', 'chi_' + str(args.num_snapshots_low) + '_' + str(args.num_snapshots_high) + '.pth'))
+	if not os.path.exists(args.checkpoint_dir):
+		os.makedirs(args.checkpoint_dir)
+
+	torch.save(psi_prime.state_dict(), os.path.join(args.checkpoint_dir, 'psi_prime_' + str(args.num_snapshots_low) + '_' + str(args.num_snapshots_high) + '.pth'))
+	torch.save(psi.state_dict(), os.path.join(args.checkpoint_dir, 'psi_' + str(args.num_snapshots_low) + '_' + str(args.num_snapshots_high) + '.pth'))
+	torch.save(phi.state_dict(), os.path.join(args.checkpoint_dir, 'phi_' + str(args.num_snapshots_low) + '_' + str(args.num_snapshots_high) + '.pth'))
+	torch.save(chi.state_dict(), os.path.join(args.checkpoint_dir, 'chi_' + str(args.num_snapshots_low) + '_' + str(args.num_snapshots_high) + '.pth'))
 
 
 if __name__ == '__main__':

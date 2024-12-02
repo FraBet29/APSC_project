@@ -51,13 +51,13 @@ Each experiment folder has the following structure:
 └── <experiment_name>_bayesian_evaluate.py
 ```
 
-```snapshots``` contains the snapshots used for training and testing. ```checkpoints``` contains the weights of the trained models. The ```<experiment_name>.py``` and ```<experiment_name>_bayesian.py``` files contain the training scripts for the deterministic and Bayesian models, respectively. The ```<experiment_name>_evaluate.py``` and ```<experiment_name>_bayesian_evaluate.py``` files contain the evaluation scripts for the deterministic and Bayesian models, respectively. The ```notebooks``` folder contains Jupyter notebooks to train the models in a Google Colaboratory environment (see [Installation](#installation) section).
+```snapshots``` contains the snapshots used for training and testing. ```checkpoints``` contains the weights of the trained models. The ```<experiment_name>_snapshots.py``` file can be used to generate the snapshots. The ```<experiment_name>.py``` and ```<experiment_name>_bayesian.py``` files contain the training scripts for the deterministic and Bayesian models, respectively. The ```<experiment_name>_evaluate.py``` and ```<experiment_name>_bayesian_evaluate.py``` files contain the evaluation scripts for the deterministic and Bayesian models, respectively. The ```notebooks``` folder contains Jupyter notebooks to train the models in a Google Colaboratory environment (see [Installation](#installation) section).
 
 ## Installation <a name="installation"></a>
 
 ### Google Colaboratory (optional)
 
-The GitHub repository already contains some pre-trained model checkpoints. The training step was done using an NVIDIA Tesla T4 GPU provided by Google Colaboratory; the training time depends on the specific experiment configuration, typically ranging from 5 to 40 minutes. It is possible to train the models from scratch in the same environment using the Jupyter notebooks provided in the repository (```notebooks``` folders). To do so, the notebooks and the data must be uploaded to Google Drive. To install the required packages in Colaboratory, add this cell at the beginning of the notebook:
+The GitHub repository already contains some pre-trained model checkpoints. The training step was done using an NVIDIA Tesla T4 GPU provided by Google Colaboratory; the training time depends on the specific experiment configuration, typically ranging from 5 to 40 minutes. It is possible to train the models from scratch in the same environment using the Jupyter notebooks provided in the repository (```notebooks``` folders). To do so, the notebooks and the data must be uploaded to Google Drive. To install the required packages in Colaboratory, this cell can be added at the beginning of the notebook:
 
 ```python
 from IPython.display import clear_output as clc

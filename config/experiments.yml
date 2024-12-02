@@ -5,12 +5,12 @@ experiments:
       script: "experiments/darcy_flow/darcy_flow_evaluate.py"
       parameters:
         field: 'p' # 'p', 'u_x', or 'u_y'
-        save_all: True # save all the plots
+        save_all: False # save all the plots
     evaluate_bayesian:
       script: "experiments/darcy_flow/darcy_flow_bayesian_evaluate.py"
       parameters:
-        field: 'p' # 'p', 'u_x', or 'u_y'
-        save_all: True
+        field: 'p'
+        save_all: False
 
   - name: "brain_damage_recovery"
     evaluate:

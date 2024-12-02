@@ -66,15 +66,16 @@ def train(args):
 			Dense(50 * k, 4, activation=None)
 
 	print("Trainable parameters:")
-	print("\tEncoder:", psi_prime.dof())
-	print("\tDecoder:", psi.dof())
-	print("\tDense NN:", phi.dof())
-	print("\tMesh-informed layer:", chi.dof())
+	print("  Encoder:", psi_prime.dof())
+	print("  Decoder:", psi.dof())
+	print("  Dense NN:", phi.dof())
 
 	# Load the dense NN and the decoder
 
-	psi.load(os.path.join('checkpoints', 'psi_' + str(args.num_snapshots_low) + '_' + str(args.num_snapshots_high)))
-	phi.load(os.path.join('checkpoints', 'phi_' + str(args.num_snapshots_low) + '_' + str(args.num_snapshots_high)))
+	psi.load_state_dict(torch.load(os.path.join(args.checkpoint_dir, 'psi_' + str(args.num_snapshots_low) + '_' + str(args.num_snapshots_high) + '.pth'),
+								   map_location=device, weights_only=True))
+	phi.load_state_dict(torch.load(os.path.join(args.checkpoint_dir, 'phi_' + str(args.num_snapshots_low) + '_' + str(args.num_snapshots_high) + '.pth'),
+								   map_location=device, weights_only=True))
 
 	psi.freeze()
 	phi.freeze()
@@ -93,7 +94,8 @@ def train(args):
 	if torch.cuda.is_available():
 		model.cuda()
 
-	model.train(mu_train_H, u_train_H, ntrain=args.num_snapshots_high, epochs=40, loss=mse(euclidean), verbose=True)
+	if not args.init == 'interp':
+		model.train(mu_train_H, u_train_H, ntrain=args.num_snapshots_high, epochs=40, loss=mse(euclidean), verbose=True)
 
 	model.eval()
 

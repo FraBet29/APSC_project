@@ -156,6 +156,4 @@ if __name__ == '__main__':
 
 	args = parser.parse_args()
 
-	set_seeds(0) # set random seed for reproducibility
-
 	evaluate(args)
