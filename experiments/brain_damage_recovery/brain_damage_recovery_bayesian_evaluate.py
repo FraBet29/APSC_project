@@ -3,34 +3,19 @@ import time
 import argparse
 import numpy as np
 import torch
-import gmsh
 import sys
 
 from dlroms import *
 from dlroms_bayesian.bayesian import Bayesian
 from dlroms_bayesian.svgd import SVGD
+from dlroms_bayesian.utils import *
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-if __name__ == '__main__':
+def evaluate(args):
 
-	gmsh.initialize()
-
-	parser = argparse.ArgumentParser(description="Evaluate trained models for Darcy flow example.")
-
-	parser.add_argument('--init', type=str, choices=['he', 'hyb'], required=True, help="Initialization strategy (He or hybrid).")
-	parser.add_argument('--n_samples', type=int, default=70, help="Number of samples from the posterior.")
-	parser.add_argument('--alpha', type=float, default=0.1, help="Confidence level.")
-	parser.add_argument('--snapshot_dir', type=str, default='snapshots', help="Directory containing snapshots.")
-	parser.add_argument('--checkpoint_dir', type=str, default='checkpoints', help="Directory containing model checkpoints.")
-	parser.add_argument('--output_dir', type=str, default='results_bayesian', help="Output directory for results.")
-	parser.add_argument('--save_all', action='store_true', help="Save all results.")
-
-	args = parser.parse_args()
-
-	if not os.path.exists(args.output_dir):
-		os.makedirs(args.output_dir)
-
-	device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+	filetag = '' if args.init == 'he' else '_' + args.init
 
 	# Domain definition
 
@@ -56,10 +41,8 @@ if __name__ == '__main__':
 	# Load test snapshots
 
 	path_test = os.path.join(args.snapshot_dir, 'snapshots_test.npz')
-	if not os.path.exists(path_test):
-		print(f"Test snapshots not found at {path_test}.")
-		exit()
 	data_test = np.load(path_test)
+
 	N_test = data_test['mu'].shape[0]
 	mu_test, u_test = data_test['mu'].astype(np.float32), data_test['u'].astype(np.float32)
 	mu_test, u_test = torch.tensor(mu_test).to(device), torch.tensor(u_test).to(device)
@@ -82,10 +65,7 @@ if __name__ == '__main__':
 
 	trainer = SVGD(model_bayes, n_samples=args.n_samples)
 	model_bayes.set_trainer(trainer)
-	if args.init == 'he':
-		trainer.load_particles(os.path.join(args.checkpoint_dir, "particles_" + str(args.n_samples) + ".pth"))
-	elif args.init == 'hyb':
-		trainer.load_particles(os.path.join(args.checkpoint_dir, "particles_" + str(args.n_samples) + "_hyb.pth"))
+	trainer.load_particles(os.path.join(args.checkpoint_dir, 'particles_' + str(args.n_samples) + filetag + '.pth'))
 
 	with torch.no_grad():
 		u_pred_bayes_mean, u_pred_bayes_var = model_bayes.sample(mu_test, n_samples=args.n_samples)
@@ -113,23 +93,6 @@ if __name__ == '__main__':
 	# Coverage
 	coverage = torch.mean(torch.logical_and(u_mean >= u_mean_pred_lower, u_mean <= u_mean_pred_upper), dtype=float).item()
 	print(f"Mean time to recovery coverage ({args.n_samples} samples, {1 - args.alpha:.0%}): {100 * coverage:.2f}%")
-
-	plt.figure(figsize=(12, 8))
-	idxs = torch.argsort(u_mean)
-	plt.title(f"Mean time to recovery ({args.n_samples} samples)", fontsize=20)
-	plt.plot(u_mean[idxs], 'b', label='True')
-	plt.plot(u_mean_pred_median[idxs], 'r', label='Predicted')
-	plt.fill_between(range(N_test), u_mean_pred_lower[idxs].cpu(), u_mean_pred_upper[idxs].cpu(), color='r', alpha=0.2)
-	plt.xlabel("Snapshot index (sorted)", fontsize=16)
-	plt.xticks(fontsize=16)
-	plt.yticks(fontsize=16)
-	plt.legend(fontsize=16)
-	plt.tight_layout()
-	if args.init == 'he':
-		plt.savefig(os.path.join(args.output_dir, "mean_recovery_time_" + str(args.n_samples) + "_" + str(args.alpha) + ".png"))
-	elif args.init == 'hyb':
-		plt.savefig(os.path.join(args.output_dir, "mean_recovery_time_" + str(args.n_samples) + "_" + str(args.alpha) + "_hyb.png"))
-	plt.close()
 	
 	# Compute maximum time-to-recovery
 
@@ -145,27 +108,39 @@ if __name__ == '__main__':
 	coverage = torch.mean(torch.logical_and(u_max >= u_max_pred_lower, u_max <= u_max_pred_upper), dtype=float).item()
 	print(f"Maximum time to recovery coverage ({args.n_samples} samples, {1 - args.alpha:.0%}): {100 * coverage:.2f}%")
 
-	plt.figure(figsize=(12, 8))
-	idxs = torch.argsort(u_max)
-	plt.title(f"Maximum time to recovery ({args.n_samples} samples)", fontsize=20)
-	plt.plot(u_max[idxs], 'b', label='True')
-	plt.plot(u_max_pred_median[idxs], 'r', label='Predicted')
-	plt.fill_between(range(N_test), u_max_pred_lower[idxs].cpu(), u_max_pred_upper[idxs].cpu(), color='r', alpha=0.2)
-	plt.xlabel("Snapshot index (sorted)", fontsize=16)
-	plt.xticks(fontsize=16)
-	plt.yticks(fontsize=16)
-	plt.legend(fontsize=16)
-	plt.tight_layout()
-	if args.init == 'he':
-		plt.savefig(os.path.join(args.output_dir, "max_recovery_time_" + str(args.n_samples) + "_" + str(args.alpha) + ".png"))
-	elif args.init == 'hyb':
-		plt.savefig(os.path.join(args.output_dir, "max_recovery_time_" + str(args.n_samples) + "_" + str(args.alpha) + "_hyb.png"))
-	plt.close()
-
 	if args.save_all:
-		
-		u_pred_bayes_mean, u_pred_bayes_var = u_pred_bayes_mean.detach().cpu().numpy(), u_pred_bayes_var.detach().cpu().numpy()
 
+		if not os.path.exists(args.output_dir):
+			os.makedirs(args.output_dir)
+
+		plt.figure(figsize=(12, 8))
+		idxs = torch.argsort(u_mean)
+		plt.title(f"Mean time to recovery ({args.n_samples} samples)", fontsize=20)
+		plt.plot(u_mean[idxs], 'b', label='True')
+		plt.plot(u_mean_pred_median[idxs], 'r', label='Predicted')
+		plt.fill_between(range(N_test), u_mean_pred_lower[idxs].cpu(), u_mean_pred_upper[idxs].cpu(), color='r', alpha=0.2)
+		plt.xlabel("Snapshot index (sorted)", fontsize=16)
+		plt.xticks(fontsize=16)
+		plt.yticks(fontsize=16)
+		plt.legend(fontsize=16)
+		plt.tight_layout()
+		plt.savefig(os.path.join(args.output_dir, 'mean_recovery_time_' + str(args.n_samples) + '_' + str(args.alpha) + filetag + '.png'))
+		plt.close()
+
+		plt.figure(figsize=(12, 8))
+		idxs = torch.argsort(u_max)
+		plt.title(f"Maximum time to recovery ({args.n_samples} samples)", fontsize=20)
+		plt.plot(u_max[idxs], 'b', label='True')
+		plt.plot(u_max_pred_median[idxs], 'r', label='Predicted')
+		plt.fill_between(range(N_test), u_max_pred_lower[idxs].cpu(), u_max_pred_upper[idxs].cpu(), color='r', alpha=0.2)
+		plt.xlabel("Snapshot index (sorted)", fontsize=16)
+		plt.xticks(fontsize=16)
+		plt.yticks(fontsize=16)
+		plt.legend(fontsize=16)
+		plt.tight_layout()
+		plt.savefig(os.path.join(args.output_dir, 'max_recovery_time_' + str(args.n_samples) + '_' + str(args.alpha) + filetag + '.png'))
+		plt.close()
+		
 		for idx in range(N_test):
 
 			print(f"Saving results for test sample {idx}...")
@@ -187,3 +162,22 @@ if __name__ == '__main__':
 			plt.tight_layout()
 			plt.savefig(os.path.join(args.output_dir, f"result_{idx}.png"))
 			plt.close()
+
+
+if __name__ == '__main__':
+
+	parser = argparse.ArgumentParser(description="Evaluate trained models for Darcy flow example.")
+
+	parser.add_argument('--init', type=str, choices=['he', 'hyb'], required=True, help="Initialization strategy (He or hybrid).")
+	parser.add_argument('--n_samples', type=int, default=70, help="Number of samples from the posterior.")
+	parser.add_argument('--alpha', type=float, default=0.1, help="Confidence level.")
+	parser.add_argument('--snapshot_dir', type=str, default='snapshots', help="Directory containing snapshots.")
+	parser.add_argument('--checkpoint_dir', type=str, default='checkpoints', help="Directory containing model checkpoints.")
+	parser.add_argument('--output_dir', type=str, default='results_bayesian', help="Output directory for results.")
+	parser.add_argument('--save_all', action='store_true', help="Save all results.")
+
+	args = parser.parse_args()
+
+	set_seeds(0)
+
+	evaluate(args)

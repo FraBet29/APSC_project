@@ -3,31 +3,21 @@ import time
 import argparse
 import numpy as np
 import torch
-import gmsh
 import sys
 
 from dlroms import *
 from dlroms_bayesian.bayesian import Bayesian
 from dlroms_bayesian.svgd import SVGD
 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-if __name__ == '__main__':
 
-	gmsh.initialize()
+def plot_reliability_diagram(args):
 
-	parser = argparse.ArgumentParser(description="Plot reliability diagram for the Bayesian network.")
-
-	parser.add_argument('--init', type=str, choices=['he', 'hyb'], required=True, help="Initialization strategy (He or hybrid).")
-	parser.add_argument('--snapshot_dir', type=str, default='snapshots', help="Directory containing snapshots.")
-	parser.add_argument('--checkpoint_dir', type=str, default='checkpoints', help="Directory containing model checkpoints.")
-	parser.add_argument('--output_dir', type=str, default='results_bayesian', help="Output directory for results.")
-
-	args = parser.parse_args()
+	filetag = '' if args.init == 'he' else '_' + args.init
 
 	if not os.path.exists(args.output_dir):
 		os.makedirs(args.output_dir)
-
-	device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 	# Domain definition
 
@@ -53,10 +43,8 @@ if __name__ == '__main__':
 	# Load test snapshots
 
 	path_test = os.path.join(args.snapshot_dir, 'snapshots_test.npz')
-	if not os.path.exists(path_test):
-		print(f"Test snapshots not found at {path_test}.")
-		exit()
 	data_test = np.load(path_test)
+
 	N_test = data_test['mu'].shape[0]
 	mu_test, u_test = data_test['mu'].astype(np.float32), data_test['u'].astype(np.float32)
 	mu_test, u_test = torch.tensor(mu_test).to(device), torch.tensor(u_test).to(device)
@@ -90,11 +78,7 @@ if __name__ == '__main__':
 
 		trainer = SVGD(model_bayes, n_samples=n_samples)
 		model_bayes.set_trainer(trainer)
-
-		if args.init == 'he':
-			trainer.load_particles(os.path.join(args.checkpoint_dir, "particles_" + str(n_samples) + ".pth"))
-		elif args.init == 'hyb':
-			trainer.load_particles(os.path.join(args.checkpoint_dir, "particles_" + str(n_samples) + "_hyb.pth"))
+		trainer.load_particles(os.path.join(args.checkpoint_dir, "particles_" + str(n_samples) + filetag + ".pth"))
 
 		with torch.no_grad():
 			u_pred_full = model_bayes(mu_test, reduce=False) # (N_samples, N_test, nh_H)
@@ -124,10 +108,7 @@ if __name__ == '__main__':
 	plt.legend(fontsize=16)
 	plt.grid()
 	plt.tight_layout()
-	if args.init == 'he':
-		plt.savefig(os.path.join(args.output_dir, "reliability_mean_time_to_recovery.png"))
-	elif args.init == 'hyb':
-		plt.savefig(os.path.join(args.output_dir, "reliability_mean_time_to_recovery_hyb.png"))
+	plt.savefig(os.path.join(args.output_dir, "reliability_mean_time_to_recovery" + filetag + ".png"))
 
 	u_max_coverages = []
 
@@ -139,11 +120,7 @@ if __name__ == '__main__':
 
 		trainer = SVGD(model_bayes, n_samples=n_samples)
 		model_bayes.set_trainer(trainer)
-
-		if args.init == 'he':
-			trainer.load_particles(os.path.join(args.checkpoint_dir, "particles_" + str(n_samples) + ".pth"))
-		elif args.init == 'hyb':
-			trainer.load_particles(os.path.join(args.checkpoint_dir, "particles_" + str(n_samples) + "_hyb.pth"))
+		trainer.load_particles(os.path.join(args.checkpoint_dir, "particles_" + str(n_samples) + filetag + ".pth"))
 
 		with torch.no_grad():
 			u_pred_full = model_bayes(mu_test, reduce=False) # (N_samples, N_test, nh_H)
@@ -173,7 +150,18 @@ if __name__ == '__main__':
 	plt.legend(fontsize=16)
 	plt.grid()
 	plt.tight_layout()
-	if args.init == 'he':
-		plt.savefig(os.path.join(args.output_dir, "reliability_max_time_to_recovery.png"))
-	elif args.init == 'hyb':
-		plt.savefig(os.path.join(args.output_dir, "reliability_max_time_to_recovery_hyb.png"))
+	plt.savefig(os.path.join(args.output_dir, "reliability_max_time_to_recovery" + filetag + ".png"))
+
+
+if __name__ == '__main__':
+
+	parser = argparse.ArgumentParser(description="Plot reliability diagram for the Bayesian network.")
+
+	parser.add_argument('--init', type=str, choices=['he', 'hyb'], required=True, help="Initialization strategy (He or hybrid).")
+	parser.add_argument('--snapshot_dir', type=str, default='snapshots', help="Directory containing snapshots.")
+	parser.add_argument('--checkpoint_dir', type=str, default='checkpoints', help="Directory containing model checkpoints.")
+	parser.add_argument('--output_dir', type=str, default='results_bayesian', help="Output directory for results.")
+
+	args = parser.parse_args()
+
+	plot_reliability_diagram(args)
