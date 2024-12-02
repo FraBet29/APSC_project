@@ -12,8 +12,12 @@ def run_script(script_path, parameters):
 	cmd = ['python', script_name]
 	if parameters:
 		for key, value in parameters.items():
-			cmd.append(f"--{key}")
-			cmd.append(str(value))
+			if key == 'save_all': # save_all is a flag
+				if value:
+					cmd.append(f"--{key}")
+			else: # other parameters are key-value pairs
+				cmd.append(f"--{key}")
+				cmd.append(str(value))
 	print(f"Running: {' '.join(cmd)}")
 	subprocess.run(cmd, check=True, cwd=script_dir)
 
