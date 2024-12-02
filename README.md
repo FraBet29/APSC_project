@@ -1,7 +1,5 @@
 # Mesh-Informed Bayesian Neural Networks
 
-### Final project for the course Advanced Programming for Scientific Computing (APSC) at Politecnico di Milano (A.Y. 2024/25)
-
 ## Description
 
 This project aims to develop a Bayesian extension of the DLROMs package for reduced order modeling of partial differential equations. In particular, we focus on combining the Bayesian approach with mesh-informed neural networks (MINNs), a class of models designed to handle functional data defined on a mesh. We test the implementation on two benchmark problems: the Darcy flow and the KPP-Fisher equation. The project is developed within the course Advanced Programming for Scientific Computing (APSC) at Politecnico di Milano.
