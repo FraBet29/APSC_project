@@ -181,6 +181,8 @@ class Bayesian(nn.Module):
         Deterministic initialization.
         """
         for layer in self.model:
+            if not isinstance(layer, ExpandedSparse):
+                raise TypeError(f"Layer {torch.typename(layer)} must be an ExpandedSparse layer.")
             layer.deterministic()
         self._reset_log_beta()
 
@@ -189,6 +191,8 @@ class Bayesian(nn.Module):
         Hybrid initialization.
         """
         for layer in self.model:
+            if not isinstance(layer, ExpandedSparse):
+                raise TypeError(f"Layer {torch.typename(layer)} must be an ExpandedSparse layer.")
             layer.hybrid()
         self._reset_log_beta()
 
