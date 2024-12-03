@@ -115,19 +115,19 @@ pip install .
 
 ## Usage <a name="usage"></a>
 
-You can run the evaluation scripts by typing (from the root folder):
+You can run the evaluation scripts defined in the ```config``` folder by typing (from the root folder):
 
 ```bash
 python run_experiments.py
 ```
 
-This script will run all the experiments defined in the ```config``` folder. You can also run a single experiment by specifying the experiment name:
+You can also run a single experiment by specifying the experiment name, and by adding the ```--bayesian``` flag to run the Bayesian version. For example:
 
 ```bash
-python run_experiments.py --experiment <experiment_name>
+python run_experiments.py --experiment <experiment_name> --bayesian
 ```
 
-For both experiments, some evaluation metrics (relative test error, coverage, etc.) are printed on the terminal.
+Depending on the experiment, some evaluation metrics (relative test error, coverage, etc.) are printed on the terminal.
 
 > _NOTE: The brain damage recovery experiment runs despite a Gmsh error displayed on the terminal._
 
