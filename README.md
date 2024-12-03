@@ -63,16 +63,16 @@ The GitHub repository already contains some pre-trained model checkpoints. The t
 from IPython.display import clear_output as clc
 
 try:
-    from dlroms import*
+    from dlroms import *
 except:
     !pip install git+https://github.com/NicolaRFranco/dlroms.git
-    from dlroms import*
+    from dlroms import *
 
 try:
-    from dlroms_bayesian import*
+    from dlroms_bayesian import *
 except:
     !pip install git+https://github.com/FraBet29/APSC_project.git
-    from dlroms_bayesian import*
+    from dlroms_bayesian import *
 
 clc()
 ```
@@ -115,7 +115,7 @@ pip install .
 
 ## Usage <a name="usage"></a>
 
-You can run the evaluation scripts defined in the ```config``` folder by typing (from the root folder):
+You can run all the evaluation scripts with the options defined in the ```config``` folder by typing (from the root folder):
 
 ```bash
 python run_experiments.py
